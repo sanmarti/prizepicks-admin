@@ -5,6 +5,7 @@ const TITLES = {
   '/admin/users':      'Users',
   '/admin/leagues':    'Leagues',
   '/admin/gameweeks':  'Gameweeks',
+  '/admin/competitions': 'Competitions',
   '/admin/scoring':    'Scoring Monitor',
   '/admin/payments':   'Payments',
 }

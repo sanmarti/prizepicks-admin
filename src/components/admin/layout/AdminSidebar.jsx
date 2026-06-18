@@ -5,9 +5,10 @@ const SECTIONS = [
   {
     label: 'MAIN',
     items: [
-      { icon: '📊', label: 'Dashboard',  path: '/admin/dashboard' },
-      { icon: '👥', label: 'Users',      path: '/admin/users' },
-      { icon: '🏆', label: 'Leagues',    path: '/admin/leagues' },
+      { icon: '📊', label: 'Dashboard',     path: '/admin/dashboard' },
+      { icon: '👥', label: 'Users',         path: '/admin/users' },
+      { icon: '🏆', label: 'Leagues',       path: '/admin/leagues' },
+      { icon: '🌍', label: 'Competitions',  path: '/admin/competitions' },
     ],
   },
   {
