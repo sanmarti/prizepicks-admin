@@ -97,12 +97,10 @@ function CompetitionCard({ comp, onEdit, onDelete, onCalendar }) {
         </div>
 
         <div className="flex gap-2 pt-1">
-          {comp.api_league_id && comp.api_season && (
-            <ActionButton size="sm" variant="secondary" onClick={() => onCalendar(comp)} className="flex-1 justify-center">
-              📅 Calendar
-            </ActionButton>
-          )}
-          <ActionButton size="sm" variant="secondary" onClick={() => onEdit(comp)} className={comp.api_league_id && comp.api_season ? '' : 'flex-1 justify-center'}>
+          <ActionButton size="sm" variant="secondary" onClick={() => onCalendar(comp)} className="flex-1 justify-center">
+            📅 Calendar
+          </ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => onEdit(comp)}>
             ✏️ Edit
           </ActionButton>
           <ActionButton size="sm" variant="danger" onClick={() => onDelete(comp)}>
