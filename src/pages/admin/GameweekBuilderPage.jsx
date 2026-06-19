@@ -546,8 +546,14 @@ export default function GameweekBuilderPage() {
   }
 
   const allOptions = events.flatMap(e => e.options.map(o => ({ ...o, event_type: e.event_type })))
-  const canStep1   = competitionId && weekNumber && lockTime
-  const canStep2   = selectedFixtures.length >= 2
+
+  const step1Missing = [
+    !competitionId && 'Competition',
+    !weekNumber    && 'Week Number',
+    !lockTime      && 'Lock Time',
+  ].filter(Boolean)
+  const canStep1 = step1Missing.length === 0
+  const canStep2 = selectedFixtures.length >= 2
 
   return (
     <>
@@ -610,7 +616,12 @@ export default function GameweekBuilderPage() {
               </div>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-end gap-3">
+              {step1Missing.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  Missing: <span className="text-yellow-400">{step1Missing.join(', ')}</span>
+                </p>
+              )}
               <ActionButton onClick={() => setStep(1)} disabled={!canStep1}>Next →</ActionButton>
             </div>
           </div>
