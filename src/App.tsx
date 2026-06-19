@@ -15,7 +15,8 @@ import GameweekBuilderPage from "./pages/admin/GameweekBuilderPage";
 import OddsReviewPage      from "./pages/admin/OddsReviewPage";
 import ScoringMonitorPage  from "./pages/admin/ScoringMonitorPage";
 import PaymentsPage        from "./pages/admin/PaymentsPage";
-import CompetitionsPage    from "./pages/admin/CompetitionsPage";
+import CompetitionsPage       from "./pages/admin/CompetitionsPage";
+import CompetitionDetailPage  from "./pages/admin/CompetitionDetailPage";
 
 function GameweeksListPage() {
   const navigate = useNavigate();
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/admin/gameweeks/:id"      element={<GameweekBuilderPage />} />
           <Route path="/admin/gameweeks/:id/odds" element={<OddsReviewPage />} />
           <Route path="/admin/competitions"       element={<CompetitionsPage />} />
+          <Route path="/admin/competitions/:id"  element={<CompetitionDetailPage />} />
           <Route path="/admin/scoring"            element={<ScoringMonitorPage />} />
           <Route path="/admin/payments"           element={<PaymentsPage />} />
         </Route>

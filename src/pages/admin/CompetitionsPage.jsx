@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
 import { getCompetitions, createCompetition, updateCompetition, deleteCompetition } from '../../api/competitions'
 import { useToast } from '../../hooks/useToast'
@@ -6,6 +7,19 @@ import StatusBadge from '../../components/admin/ui/StatusBadge'
 import ActionButton from '../../components/admin/ui/ActionButton'
 import ConfirmModal from '../../components/admin/ui/ConfirmModal'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
+
+const API_LEAGUES = [
+  { id: '39',  name: 'Premier League' },
+  { id: '140', name: 'La Liga' },
+  { id: '2',   name: 'UEFA Champions League' },
+  { id: '135', name: 'Serie A' },
+  { id: '61',  name: 'Ligue 1' },
+  { id: '78',  name: 'Bundesliga' },
+  { id: '1',   name: 'FIFA World Cup' },
+  { id: '4',   name: 'UEFA Euro' },
+]
+
+const API_SEASONS = ['2022', '2023', '2024', '2025', '2026']
 
 const STATUS_COLORS = {
   FUTURE:      'bg-blue-500/15 text-blue-400 border-blue-500/20',
@@ -16,6 +30,7 @@ const STATUS_COLORS = {
 const EMPTY_FORM = {
   name: '', description: '', logo_url: '', cover_url: '',
   start_date: '', end_date: '', num_weeks: '',
+  api_league_id: '', api_season: '',
 }
 
 function CompetitionStatus({ status }) {
@@ -31,7 +46,7 @@ function CompetitionStatus({ status }) {
   )
 }
 
-function CompetitionCard({ comp, onEdit, onDelete }) {
+function CompetitionCard({ comp, onEdit, onDelete, onCalendar }) {
   const weeks = comp.num_weeks
   const start = new Date(comp.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   const end   = new Date(comp.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -82,7 +97,12 @@ function CompetitionCard({ comp, onEdit, onDelete }) {
         </div>
 
         <div className="flex gap-2 pt-1">
-          <ActionButton size="sm" variant="secondary" onClick={() => onEdit(comp)} className="flex-1 justify-center">
+          {comp.api_league_id && comp.api_season && (
+            <ActionButton size="sm" variant="secondary" onClick={() => onCalendar(comp)} className="flex-1 justify-center">
+              📅 Calendar
+            </ActionButton>
+          )}
+          <ActionButton size="sm" variant="secondary" onClick={() => onEdit(comp)} className={comp.api_league_id && comp.api_season ? '' : 'flex-1 justify-center'}>
             ✏️ Edit
           </ActionButton>
           <ActionButton size="sm" variant="danger" onClick={() => onDelete(comp)}>
@@ -172,6 +192,32 @@ function CompetitionForm({ initial, onSave, onCancel, saving }) {
             placeholder="https://… (wide banner image)"
             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
         </div>
+
+        <div className="col-span-2 border-t border-white/8 pt-3">
+          <p className="text-xs text-gray-500 mb-3">API-Football mapping — required for the match calendar</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">League</label>
+              <select value={form.api_league_id} onChange={e => set('api_league_id', e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                <option value="">— not set —</option>
+                {API_LEAGUES.map(l => <option key={l.id} value={l.id}>{l.name} (#{l.id})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Season</label>
+              <select value={form.api_season} onChange={e => set('api_season', e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                <option value="">— not set —</option>
+                {API_SEASONS.map(s => (
+                  <option key={s} value={s}>
+                    {s}/{parseInt(s)+1-2000} {parseInt(s) <= 2024 ? '✓ free' : '(paid)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex gap-3 justify-end pt-2">
@@ -185,6 +231,7 @@ function CompetitionForm({ initial, onSave, onCancel, saving }) {
 }
 
 export default function CompetitionsPage() {
+  const navigate = useNavigate()
   const { data: competitions, loading, refetch } = useApi(getCompetitions)
   const { toasts, toast } = useToast()
 
@@ -228,6 +275,10 @@ export default function CompetitionsPage() {
   function handleEdit(comp) {
     setEditTarget(comp)
     setShowForm(true)
+  }
+
+  function handleCalendar(comp) {
+    navigate(`/admin/competitions/${comp.id}`)
   }
 
   const counts = {
@@ -278,13 +329,15 @@ export default function CompetitionsPage() {
             </h2>
             <CompetitionForm
               initial={editTarget ? {
-                name:        editTarget.name,
-                description: editTarget.description ?? '',
-                logo_url:    editTarget.logo_url ?? '',
-                cover_url:   editTarget.cover_url ?? '',
-                start_date:  editTarget.start_date?.split('T')[0] ?? '',
-                end_date:    editTarget.end_date?.split('T')[0] ?? '',
-                num_weeks:   editTarget.num_weeks ?? '',
+                name:          editTarget.name,
+                description:   editTarget.description ?? '',
+                logo_url:      editTarget.logo_url ?? '',
+                cover_url:     editTarget.cover_url ?? '',
+                start_date:    editTarget.start_date?.split('T')[0] ?? '',
+                end_date:      editTarget.end_date?.split('T')[0] ?? '',
+                num_weeks:     editTarget.num_weeks ?? '',
+                api_league_id: editTarget.api_league_id ?? '',
+                api_season:    editTarget.api_season ?? '',
               } : null}
               onSave={handleSave}
               onCancel={() => { setShowForm(false); setEditTarget(null) }}
@@ -309,6 +362,7 @@ export default function CompetitionsPage() {
                 comp={comp}
                 onEdit={handleEdit}
                 onDelete={setDeleteTarget}
+                onCalendar={handleCalendar}
               />
             ))}
           </div>

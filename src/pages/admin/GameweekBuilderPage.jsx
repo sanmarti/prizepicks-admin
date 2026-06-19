@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
-import { getLeagues } from '../../api/leagues'
+import { getCompetitions } from '../../api/competitions'
 import { createGameweek, publishGameweek } from '../../api/gameweeks'
 import { getOdds } from '../../api/fixtures'
 import { useToast } from '../../hooks/useToast'
@@ -408,7 +408,7 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
 
 export default function GameweekBuilderPage() {
   const navigate = useNavigate()
-  const { data: leagues } = useApi(getLeagues)
+  const { data: competitions } = useApi(getCompetitions)
   const { toasts, toast } = useToast()
 
   const [step, setStep]         = useState(0)
@@ -416,10 +416,10 @@ export default function GameweekBuilderPage() {
   const [confirmPublish, setConfirmPublish] = useState(false)
 
   // Step 1
-  const [leagueId, setLeagueId]     = useState('')
-  const [weekNumber, setWeekNumber] = useState('')
-  const [lockTime, setLockTime]     = useState('')
-  const [revealTime, setRevealTime] = useState('')
+  const [competitionId, setCompetitionId] = useState('')
+  const [weekNumber, setWeekNumber]       = useState('')
+  const [lockTime, setLockTime]           = useState('')
+  const [revealTime, setRevealTime]       = useState('')
 
   // Step 2
   const [selectedFixtures, setSelectedFixtures] = useState([])
@@ -429,8 +429,8 @@ export default function GameweekBuilderPage() {
   const [oddsMap, setOddsMap]   = useState({}) // fixtureId → {loading, match_winner, goals_ou}
   const [openFixtures, setOpenFixtures] = useState([]) // array of fixture IDs that are open
 
-  const activeLeagues  = (leagues ?? []).filter(l => l.status === 'ACTIVE')
-  const selectedLeague = activeLeagues.find(l => l.id === leagueId)
+  const activeCompetitions  = competitions ?? []
+  const selectedCompetition = activeCompetitions.find(c => c.id === competitionId)
 
   // Fetch odds when entering Step 3
   useEffect(() => {
@@ -505,7 +505,7 @@ export default function GameweekBuilderPage() {
 
   function buildPayload() {
     return {
-      league_id:   leagueId,
+      competition_id: competitionId,
       week_number: parseInt(weekNumber),
       lock_time:   lockTime,
       reveal_time: revealTime || lockTime,
@@ -546,7 +546,7 @@ export default function GameweekBuilderPage() {
   }
 
   const allOptions = events.flatMap(e => e.options.map(o => ({ ...o, event_type: e.event_type })))
-  const canStep1   = leagueId && weekNumber && lockTime
+  const canStep1   = competitionId && weekNumber && lockTime
   const canStep2   = selectedFixtures.length >= 2
 
   return (
@@ -555,7 +555,7 @@ export default function GameweekBuilderPage() {
       <ConfirmModal
         open={confirmPublish}
         title="Publish Gameweek?"
-        message={`This will assign matchups and open picks for all members of "${selectedLeague?.name}". Continue?`}
+        message={`This will publish gameweek ${weekNumber} for "${selectedCompetition?.name}". Matchups will be generated for all active leagues in this competition. Continue?`}
         confirmLabel="Publish Now 🚀"
         onConfirm={handlePublish}
         onCancel={() => setConfirmPublish(false)}
@@ -570,14 +570,19 @@ export default function GameweekBuilderPage() {
             <h2 className="text-white font-semibold text-lg">Basic Information</h2>
 
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">League</label>
-              <select value={leagueId} onChange={e => setLeagueId(e.target.value)}
+              <label className="block text-xs text-gray-400 mb-1.5">Competition</label>
+              <select value={competitionId} onChange={e => setCompetitionId(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <option value="">Select an active league…</option>
-                {activeLeagues.map(l => (
-                  <option key={l.id} value={l.id}>{l.name} — {l.competition}</option>
+                <option value="">Select a competition…</option>
+                {activeCompetitions.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
+              {selectedCompetition && (
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Gameweek will be visible to all active leagues in this competition.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -586,11 +591,6 @@ export default function GameweekBuilderPage() {
                 <input type="number" min={1} value={weekNumber} onChange={e => setWeekNumber(e.target.value)}
                   placeholder="1"
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Competition (from league)</label>
-                <input value={selectedLeague?.competition ?? ''} readOnly
-                  className="w-full bg-white/3 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-gray-400"/>
               </div>
             </div>
 
@@ -620,7 +620,11 @@ export default function GameweekBuilderPage() {
         {step === 1 && (
           <div className="bg-[#111520] border border-white/8 rounded-2xl p-6 space-y-5">
             <h2 className="text-white font-semibold text-lg">Import Fixtures</h2>
-            <FixtureSelector selected={selectedFixtures} onSelect={setSelectedFixtures}/>
+            <FixtureSelector
+              selected={selectedFixtures}
+              onSelect={setSelectedFixtures}
+              competition={selectedCompetition}
+            />
             <div className="flex justify-between">
               <ActionButton variant="secondary" onClick={() => setStep(0)}>← Back</ActionButton>
               <ActionButton onClick={() => setStep(2)} disabled={!canStep2}>
@@ -686,7 +690,7 @@ export default function GameweekBuilderPage() {
               {/* Summary grid */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  ['League',   selectedLeague?.name ?? leagueId],
+                  ['Competition', selectedCompetition?.name ?? competitionId],
                   ['Week',     weekNumber],
                   ['Lock',     lockTime ? new Date(lockTime).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '—'],
                   ['Fixtures', selectedFixtures.length],
