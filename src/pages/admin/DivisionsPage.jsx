@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { listDivisions, createDivision, updateDivision, getDivisionUsers } from '../../api/divisions'
+import { listDivisions, createDivision, updateDivision } from '../../api/divisions'
+import { getRankings } from '../../api/sprints'
 import { useApi } from '../../hooks/useApi'
 import { useToast } from '../../hooks/useToast'
 import ActionButton from '../../components/admin/ui/ActionButton'
@@ -244,7 +245,7 @@ function DivisionInlineForm({ div, onSave, onCancel, saving }) {
 }
 
 // ── Division card — view mode & edit mode ─────────────────────────────────────
-function DivisionCard({ div, isEditing, onEdit, onSave, onCancel, saving, onViewUsers }) {
+function DivisionCard({ div, isEditing, onEdit, onSave, onCancel, saving, onViewRankings }) {
   const v = getVisuals(div)
   const [imgError, setImgError] = useState(false)
   const coverSrc = div.badge_url || v.image
@@ -365,10 +366,10 @@ function DivisionCard({ div, isEditing, onEdit, onSave, onCancel, saving, onView
             ✏️ Edit
           </ActionButton>
           <button
-            onClick={() => onViewUsers(div.id)}
-            className="flex-1 py-2 rounded-xl text-xs font-medium transition-all border text-xs"
+            onClick={() => onViewRankings(div.id)}
+            className="flex-1 py-2 rounded-xl text-xs font-semibold transition-all border"
             style={{ background: v.accentBg, borderColor: v.accentBorder, color: v.accent }}>
-            View players
+            Rankings →
           </button>
         </div>
       </div>
@@ -376,66 +377,212 @@ function DivisionCard({ div, isEditing, onEdit, onSave, onCancel, saving, onView
   )
 }
 
-// ── Players modal ─────────────────────────────────────────────────────────────
-function UsersModal({ divisionId, divisions, onClose }) {
-  const [users, setUsers]   = useState([])
+// ── Full-screen division rankings panel ───────────────────────────────────────
+function DivisionRankingsPanel({ divisionId, divisions, onClose }) {
+  const [rows, setRows]     = useState([])
+  const [sprint, setSprint] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [imgError, setImgError] = useState(false)
+
   const div = divisions.find(d => d.id === divisionId)
   const v   = div ? getVisuals(div) : DIVISION_VISUALS[1]
 
+  const promLP = div?.promotion_min_points ?? null
+  const relLP  = div?.allows_relegation && div?.relegation_max_points !== null ? div.relegation_max_points : null
+
   useEffect(() => {
-    getDivisionUsers(divisionId)
-      .then(r => setUsers(r.data))
-      .catch(() => {})
+    getRankings({ division_id: divisionId })
+      .then(r => { setRows(r.data.rows || []); setSprint(r.data.sprint) })
+      .catch(() => setRows([]))
       .finally(() => setLoading(false))
   }, [divisionId])
 
+  // First index in relegation zone
+  const firstRelIdx  = relLP  !== null ? rows.findIndex(r => r.total_league_points <= relLP) : -1
+  // Last index in promotion zone
+  const lastPromoIdx = promLP !== null ? rows.filter(r => r.total_league_points >= promLP).length - 1 : -1
+
+  const coverSrc = div?.badge_url || v.image
+
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0d1117] border border-white/10 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
-        <div className="px-5 py-4 flex items-center justify-between border-b"
-          style={{ borderColor: v.accentBorder, background: v.accentBg }}>
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{div?.icon}</span>
-            <div>
-              <h3 className="text-white font-bold text-sm">{div?.name}</h3>
-              <p className="text-xs" style={{ color: v.accent }}>Players in this division</p>
-            </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0a0d12]">
+      {/* Hero */}
+      <div className="relative h-40 flex-shrink-0 overflow-hidden">
+        {!imgError
+          ? <img src={coverSrc} alt={div?.name} onError={() => setImgError(true)} className="w-full h-full object-cover opacity-70" />
+          : <div className={`w-full h-full bg-gradient-to-br ${v.gradient}`} />
+        }
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0d12] via-[#0a0d12]/50 to-transparent" />
+
+        <button onClick={onClose}
+          className="absolute top-4 left-4 flex items-center gap-1.5 text-sm text-gray-300 hover:text-white bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/10 transition-colors">
+          ← Back
+        </button>
+
+        <div className="absolute bottom-0 left-0 right-0 px-5 pb-4 flex items-end gap-3">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl border"
+            style={{ background: v.accentBg, borderColor: v.accentBorder }}>
+            {div?.icon}
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white text-xl">✕</button>
+          <div>
+            <p className="font-black text-lg leading-tight" style={{ color: v.accent }}>{div?.name}</p>
+            <p className="text-white/40 text-[10px] tracking-wider">
+              {sprint ? `${sprint.name} · ` : ''}Rankings
+            </p>
+          </div>
+          <div className="ml-auto text-right">
+            <p className="text-white font-bold text-sm">{rows.length}</p>
+            <p className="text-gray-600 text-[10px]">players</p>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {loading && <p className="text-gray-500 text-sm text-center py-10">Loading…</p>}
-          {!loading && users.length === 0 && (
-            <div className="text-center py-10">
-              <p className="text-3xl mb-2">{div?.icon}</p>
-              <p className="text-gray-500 text-sm">No players in {div?.name} yet</p>
+      </div>
+
+      {/* Zone legend */}
+      <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/8 flex-shrink-0 bg-[#0d1117]">
+        {promLP !== null && !div?.is_highest && (
+          <span className="flex items-center gap-1.5 text-[10px] text-green-400 font-semibold">
+            <span className="w-2.5 h-2.5 rounded bg-green-500/25 border border-green-500/40 inline-block" />
+            Promotion ≥{promLP} LP
+          </span>
+        )}
+        <span className="flex items-center gap-1.5 text-[10px] text-gray-500 font-semibold">
+          <span className="w-2.5 h-2.5 rounded bg-white/5 border border-white/10 inline-block" />
+          Retention
+        </span>
+        {relLP !== null && (
+          <span className="flex items-center gap-1.5 text-[10px] text-red-400 font-semibold ml-auto">
+            <span className="w-2.5 h-2.5 rounded bg-red-500/20 border border-red-500/30 inline-block" />
+            Relegation ≤{relLP} LP
+          </span>
+        )}
+      </div>
+
+      {/* Column headers */}
+      <div className="flex items-center gap-3 px-5 py-2 border-b border-white/5 flex-shrink-0 bg-[#0d1117]">
+        <span className="w-7 text-[10px] text-gray-600 text-center">#</span>
+        <span className="flex-1 text-[10px] text-gray-600">Player</span>
+        <span className="w-10 text-[10px] text-gray-600 text-right">LP</span>
+        <span className="w-10 text-[10px] text-gray-600 text-right">✓</span>
+        <span className="w-8 text-[10px] text-gray-600 text-right">⭐</span>
+        <span className="w-8 text-[10px] text-gray-600 text-right">GW</span>
+        <span className="w-16 text-[10px] text-gray-600 text-center">Status</span>
+      </div>
+
+      {/* Table body */}
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <div className="flex items-center justify-center py-16 gap-2 text-gray-600 text-sm">
+            <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin"
+              style={{ borderColor: v.accent, borderTopColor: 'transparent' }} />
+            Loading…
+          </div>
+        )}
+        {!loading && rows.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <span className="text-5xl">{div?.icon}</span>
+            <p className="text-gray-500 text-sm">No players ranked yet</p>
+            <p className="text-gray-700 text-xs">Activate a sprint to see rankings</p>
+          </div>
+        )}
+
+        {!loading && rows.map((row, i) => {
+          const rank    = i + 1
+          const isPromo = promLP !== null && row.total_league_points >= promLP
+          const isRel   = relLP  !== null && row.total_league_points <= relLP
+          const showRelDivider = firstRelIdx === i && i > 0
+
+          return (
+            <div key={row.user_id}>
+              {showRelDivider && (
+                <div className="flex items-center gap-2 px-5 py-2 bg-red-950/25 border-y border-red-500/20">
+                  <span className="text-red-400 text-[10px] font-bold tracking-wider">⬇ RELEGATION ZONE — ≤{relLP} LP</span>
+                </div>
+              )}
+
+              <div className={`flex items-center gap-3 px-5 py-3 border-b border-white/4 transition-colors ${
+                isPromo ? 'bg-green-950/15 hover:bg-green-950/25' :
+                isRel   ? 'bg-red-950/12 hover:bg-red-950/20' :
+                'hover:bg-white/2'
+              }`}>
+                {/* Rank */}
+                <span className={`w-7 text-center text-sm font-black flex-shrink-0 ${
+                  rank === 1 ? 'text-yellow-400' :
+                  rank === 2 ? 'text-gray-300' :
+                  rank === 3 ? 'text-amber-600' : 'text-gray-700'
+                }`}>{rank}</span>
+
+                {/* Avatar + name */}
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 border"
+                    style={{ background: v.accentBg, borderColor: v.accentBorder, color: v.accent }}>
+                    {(row.display_name || row.email)?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-white text-sm truncate leading-tight">{row.display_name || row.email?.split('@')[0]}</p>
+                    <p className="text-gray-700 text-[10px] truncate">{row.email}</p>
+                  </div>
+                </div>
+
+                {/* LP */}
+                <span className={`w-10 text-right font-black text-sm flex-shrink-0 ${
+                  isPromo ? 'text-green-400' : isRel ? 'text-red-400' : 'text-indigo-400'
+                }`}>{row.total_league_points}</span>
+
+                {/* Correct */}
+                <span className="w-10 text-right text-gray-300 text-sm flex-shrink-0">{row.total_correct_picks}</span>
+
+                {/* Perfect weeks */}
+                <span className="w-8 text-right text-yellow-400 text-sm flex-shrink-0">
+                  {row.perfect_weeks > 0 ? row.perfect_weeks : <span className="text-gray-700">—</span>}
+                </span>
+
+                {/* GW participated */}
+                <span className="w-8 text-right text-gray-500 text-sm flex-shrink-0">{row.gameweeks_participated}</span>
+
+                {/* Outcome / Zone badge */}
+                <div className="w-16 flex justify-center flex-shrink-0">
+                  {isPromo && !div?.is_highest ? (
+                    <span className="text-[10px] bg-green-900/30 text-green-400 border border-green-500/25 px-1.5 py-0.5 rounded-full font-semibold">⬆ Up</span>
+                  ) : isRel ? (
+                    <span className="text-[10px] bg-red-900/25 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded-full font-semibold">⬇ Down</span>
+                  ) : row.is_rookie ? (
+                    <span className="text-[10px] bg-yellow-900/25 text-yellow-400 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Rookie</span>
+                  ) : (
+                    <span className="text-[10px] text-gray-700">—</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Promotion divider */}
+              {lastPromoIdx === i && i < rows.length - 1 && !div?.is_highest && (
+                <div className="flex items-center gap-2 px-5 py-1.5 bg-white/2 border-b border-white/8">
+                  <span className="text-gray-600 text-[10px] font-semibold tracking-wider">— RETENTION ZONE —</span>
+                </div>
+              )}
             </div>
-          )}
-          {users.map(u => (
-            <div key={u.id}
-              className="flex items-center justify-between rounded-xl px-3 py-2.5 border border-white/5 bg-white/3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-full bg-indigo-900/50 border border-indigo-500/20 flex items-center justify-center text-xs font-bold text-indigo-300">
-                  {(u.display_name || u.email)?.[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <p className="text-white text-sm">{u.display_name || u.email?.split('@')[0]}</p>
-                  <p className="text-gray-600 text-xs">{u.email}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {u.current_sprint_lp != null && (
-                  <span className="text-sm font-bold" style={{ color: v.accent }}>{u.current_sprint_lp} LP</span>
-                )}
-                {u.is_rookie && (
-                  <span className="text-[10px] bg-yellow-900/30 text-yellow-400 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Rookie</span>
-                )}
-              </div>
+          )
+        })}
+      </div>
+
+      {/* Footer summary */}
+      {!loading && rows.length > 0 && (
+        <div className="flex-shrink-0 px-5 py-3 border-t border-white/8 bg-[#0d1117] grid grid-cols-3 gap-3 text-center">
+          {[
+            ['Promotion', rows.filter(r => promLP !== null && r.total_league_points >= promLP).length, '#22c55e'],
+            ['Retention', rows.filter(r => {
+              const inPromo = promLP !== null && r.total_league_points >= promLP
+              const inRel   = relLP  !== null && r.total_league_points <= relLP
+              return !inPromo && !inRel
+            }).length, '#6b7280'],
+            ['Relegation', rows.filter(r => relLP !== null && r.total_league_points <= relLP).length, '#ef4444'],
+          ].map(([label, count, color]) => (
+            <div key={label}>
+              <p className="font-black text-lg" style={{ color }}>{count}</p>
+              <p className="text-gray-600 text-[10px]">{label}</p>
             </div>
           ))}
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -444,10 +591,10 @@ function UsersModal({ divisionId, divisions, onClose }) {
 export default function DivisionsPage() {
   const { data: divisions, loading, refetch } = useApi(listDivisions)
   const { toasts, toast }   = useToast()
-  const [editingId, setEditingId]   = useState(null)
-  const [showCreate, setShowCreate] = useState(false)
-  const [saving, setSaving]         = useState(false)
-  const [usersDiv, setUsersDiv]     = useState(null)
+  const [editingId, setEditingId]     = useState(null)
+  const [showCreate, setShowCreate]   = useState(false)
+  const [saving, setSaving]           = useState(false)
+  const [rankingsDiv, setRankingsDiv] = useState(null)
 
   async function handleSave(id, payload) {
     setSaving(true)
@@ -475,8 +622,8 @@ export default function DivisionsPage() {
     <>
       <ToastContainer toasts={toasts} />
 
-      {usersDiv && (
-        <UsersModal divisionId={usersDiv} divisions={sorted} onClose={() => setUsersDiv(null)} />
+      {rankingsDiv && (
+        <DivisionRankingsPanel divisionId={rankingsDiv} divisions={sorted} onClose={() => setRankingsDiv(null)} />
       )}
 
       <div className="space-y-6">
@@ -533,7 +680,7 @@ export default function DivisionsPage() {
                 onSave={(payload) => handleSave(div.id, payload)}
                 onCancel={() => setEditingId(null)}
                 saving={saving}
-                onViewUsers={setUsersDiv}
+                onViewRankings={setRankingsDiv}
               />
             ))}
           </div>
