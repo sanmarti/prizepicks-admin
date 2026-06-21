@@ -142,6 +142,18 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     if (existingGw?.lock_time) setLockTime(existingGw.lock_time.slice(0, 16))
   }, [existingGw])
 
+  // Auto-update lock time to 5 min before earliest fixture whenever events change
+  useEffect(() => {
+    if (existingGw?.lock_time) return  // don't override an already-saved lock
+    if (events.length === 0) { setLockTime(defaultLock); return }
+    const earliest = events.reduce((min, ev) =>
+      ev.match_time && new Date(ev.match_time) < new Date(min) ? ev.match_time : min,
+      events[0].match_time || defaultLock
+    )
+    const autoLock = new Date(new Date(earliest).getTime() - 5 * 60 * 1000)
+    setLockTime(autoLock.toISOString().slice(0, 16))
+  }, [events, existingGw?.lock_time, defaultLock])
+
   const isSelected = (id) => events.some(ev => ev.fixture_id === String(id))
 
   const toggleFixture = (fix) => {
