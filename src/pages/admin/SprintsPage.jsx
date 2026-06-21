@@ -31,12 +31,19 @@ function getYear(sprintName) {
   return m ? parseInt(m[0]) : null
 }
 
+function firstMondayOfMonth(year, month) {
+  const d   = new Date(Date.UTC(year, month, 1))
+  const dow = d.getUTCDay() // 0=Sun, 1=Mon, …
+  const offset = dow === 0 ? 1 : dow === 1 ? 0 : 8 - dow
+  return new Date(Date.UTC(year, month, 1 + offset))
+}
+
 function buildYearSprints(year) {
-  const startMonth = year === 2026 ? 6 : 0 // 2026: July onward (index 6); 2027: all 12
+  const startMonth = year === 2026 ? 6 : 0
   return MONTHS.slice(startMonth).map((name, i) => {
     const monthIdx = startMonth + i
-    const start = new Date(Date.UTC(year, monthIdx, 1))
-    const end   = new Date(Date.UTC(year, monthIdx, 28, 23, 59, 59))
+    const start = firstMondayOfMonth(year, monthIdx)
+    const end   = new Date(start.getTime() + 28 * 86400000 - 1000) // 4 weeks later, Sunday 23:59:59
     return {
       name:           `${name} ${year}`,
       start_date:     start.toISOString(),
@@ -378,14 +385,15 @@ export default function SprintsPage() {
 
 // ── Manual create modal ───────────────────────────────────────────────────────
 function CreateSprintModal({ onCreated, onClose }) {
-  const now = new Date()
-  const fourWeeks = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000)
-  const fmt = (d) => d.toISOString().slice(0, 16)
+  const now   = new Date()
+  const start = firstMondayOfMonth(now.getUTCFullYear(), now.getUTCMonth())
+  const end   = new Date(start.getTime() + 28 * 86400000 - 1000)
+  const fmt   = (d) => d.toISOString().slice(0, 16)
 
   const [form, setForm] = useState({
-    name: `${MONTHS[now.getMonth()]} ${now.getFullYear()}`,
-    start_date: fmt(now),
-    end_date: fmt(fourWeeks),
+    name: `${MONTHS[now.getUTCMonth()]} ${now.getUTCFullYear()}`,
+    start_date: fmt(start),
+    end_date: fmt(end),
     gameweek_count: 4,
   })
   const [saving, setSaving] = useState(false)
