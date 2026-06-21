@@ -35,12 +35,11 @@ const GOALS_THRESHOLDS    = ['0.5', '1.5', '2.5', '3.5', '4.5']
 const CORNER_THRESHOLDS   = ['7.5', '8.5', '9.5', '10.5', '11.5']
 
 function buildOptions(type, homeTeam, awayTeam, threshold) {
-  const ec = 5
   switch (type) {
     case 'MATCH_RESULT': return [
-      { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: ec },
-      { label: 'Draw',            result_key: 'DRAW',       energy_cost: ec },
-      { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: ec },
+      { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: 4 },
+      { label: 'Draw',            result_key: 'DRAW',       energy_cost: 2 },
+      { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: 4 },
     ]
     case 'GOALS': { const t = threshold || '2.5'; return [
       { label: `Over ${t} Goals`,  result_key: `OVER_${t}`,  energy_cost: ec },
@@ -250,11 +249,17 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const handleSave = async (andPublish = false) => {
     if (andPublish && events.length !== 15) { setErr('Need exactly 15 events to publish'); return }
     if (events.length === 0) { setErr('Add at least 1 event'); return }
+    const badEvent = events.find(ev => ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0) !== 10)
+    if (badEvent) { setErr(`Energy costs for "${badEvent.fixture_name}" must sum to 10`); return }
     setSaving(true); setErr('')
     try {
+      // If editing an already-published gameweek, always re-publish after saving
+      const wasPublished = gwStatus === 'PUBLISHED'
+      const shouldPublish = andPublish || wasPublished
       const res = await addSprintGameweek(sprintId, { sprint_week: week, lock_time: lockTime, events })
-      if (andPublish) await publishGameweek(res.data.gameweek_id)
-      setMsg(andPublish ? 'Gameweek published!' : 'Draft saved!')
+      if (shouldPublish) await publishGameweek(res.data.gameweek_id)
+      setMsg(shouldPublish ? 'Gameweek published!' : 'Draft saved!')
+      setEditing(false)
       setTimeout(() => setMsg(''), 3000)
       onSaved()
     } catch (e) {
@@ -278,7 +283,9 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   // Determine week status
   const gwStatus = existingGw?.status || null
   const gwStatusInfo = gwStatus ? GW_STATUS[gwStatus] : null
-  const isReadOnly = gwStatus && gwStatus !== 'DRAFT'
+  const [editing, setEditing] = useState(false)
+  const isEditing = !gwStatus || gwStatus === 'DRAFT' || (gwStatus === 'PUBLISHED' && editing)
+  const canEdit   = !gwStatus || gwStatus === 'DRAFT' || gwStatus === 'PUBLISHED'
 
   const pct = (events.length / 15) * 100
   const weekLabel = `${weekStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
@@ -346,7 +353,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                 type="datetime-local"
                 value={lockTime}
                 onChange={e => setLockTime(e.target.value)}
-                disabled={isReadOnly}
+                disabled={!isEditing}
                 className={`${inp} w-auto min-w-[220px]`}
               />
             </div>
@@ -356,25 +363,84 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
             </div>
           </div>
 
-          {/* Published / Locked / Finished — read-only summary */}
-          {isReadOnly && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                ['Events', existingGw.event_count + '/15'],
-                ['Entries', existingGw.entry_count],
-                ['Lock', new Date(existingGw.lock_time).toLocaleDateString()],
-                ['Status', gwStatus],
-              ].map(([label, val]) => (
-                <div key={label} className="bg-white/3 border border-white/5 rounded-2xl p-3 text-center">
-                  <p className="text-gray-600 text-xs">{label}</p>
-                  <p className="text-white font-bold text-sm mt-1">{val}</p>
-                </div>
-              ))}
+          {/* Stats row + edit button for non-empty gameweeks */}
+          {gwStatus && (
+            <div className="flex items-center gap-3">
+              <div className="grid grid-cols-4 gap-2 flex-1">
+                {[
+                  ['Events', (existingGw.event_count ?? events.length) + '/15'],
+                  ['Entries', existingGw.entry_count ?? 0],
+                  ['Lock', new Date(existingGw.lock_time).toLocaleDateString()],
+                  ['Status', gwStatus],
+                ].map(([label, val]) => (
+                  <div key={label} className="bg-white/3 border border-white/5 rounded-xl p-2.5 text-center">
+                    <p className="text-gray-600 text-[10px]">{label}</p>
+                    <p className="text-white font-bold text-xs mt-0.5">{val}</p>
+                  </div>
+                ))}
+              </div>
+              {gwStatus === 'PUBLISHED' && !editing && (
+                <button
+                  onClick={() => setEditing(true)}
+                  className="px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-semibold transition-colors flex-shrink-0"
+                >
+                  Edit events
+                </button>
+              )}
+              {gwStatus === 'PUBLISHED' && editing && (
+                <button
+                  onClick={() => { setEditing(false); setEvents(initEvents()) }}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-400 border border-white/10 rounded-xl text-xs transition-colors flex-shrink-0"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           )}
 
-          {/* Fixture browser + event editor (DRAFT / empty only) */}
-          {!isReadOnly && (
+          {/* Events list — always visible for non-empty gameweeks */}
+          {!isEditing && events.length > 0 && (
+            <div>
+              <p className="text-gray-500 text-xs font-semibold tracking-wider uppercase mb-3">
+                Events ({events.length}/15)
+              </p>
+              <div className="space-y-2">
+                {events.map((ev, i) => {
+                  const hasResult = ev.options.some(o => o.result && o.result !== 'PENDING')
+                  return (
+                    <div key={i} className="bg-white/3 border border-white/8 rounded-2xl p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <p className="text-white text-sm font-semibold">{ev.fixture_name}</p>
+                          <p className="text-gray-600 text-[10px] mt-0.5">
+                            {ev.event_type} · {ev.match_time ? fmtDate(ev.match_time) + ' ' + fmtTime(ev.match_time) : ''}
+                          </p>
+                        </div>
+                        {hasResult && <span className="text-[10px] text-purple-400 bg-purple-900/20 border border-purple-500/20 rounded-full px-2 py-0.5 flex-shrink-0">Settled</span>}
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {ev.options.map((opt, j) => (
+                          <div key={j} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${
+                            opt.result === 'WON'  ? 'bg-green-900/25 border-green-500/30 text-green-300' :
+                            opt.result === 'LOST' ? 'bg-white/3 border-white/8 text-gray-600 line-through' :
+                            'bg-white/5 border-white/10 text-gray-300'
+                          }`}>
+                            {opt.result === 'WON' && <span className="text-green-400">✓</span>}
+                            {opt.result === 'LOST' && <span className="text-red-500">✗</span>}
+                            <span>{opt.label}</span>
+                            <span className="text-gray-600 text-[10px]">⚡{opt.energy_cost}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Fixture browser + event editor (DRAFT / editing PUBLISHED) */}
+          {isEditing && (
             <>
               {/* Progress bar */}
               <div>
@@ -534,27 +600,39 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                         )}
 
                         {/* Options — labels auto-generated, only energy cost editable */}
-                        <div className="grid grid-cols-2 gap-2">
-                          {ev.options.map((opt, optIdx) => (
-                            <div key={optIdx}
-                              className="flex items-center justify-between bg-white/4 border border-white/8 rounded-xl px-3 py-2 gap-2">
-                              <div className="min-w-0">
-                                <p className="text-gray-200 text-xs font-medium truncate">{opt.label}</p>
-                                <p className="text-gray-700 text-[10px] font-mono">{opt.result_key}</p>
+                        {(() => {
+                          const optSum = ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0)
+                          return (
+                            <>
+                              <div className="grid grid-cols-2 gap-2">
+                                {ev.options.map((opt, optIdx) => (
+                                  <div key={optIdx}
+                                    className="flex items-center justify-between bg-white/4 border border-white/8 rounded-xl px-3 py-2 gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-gray-200 text-xs font-medium truncate">{opt.label}</p>
+                                      <p className="text-gray-700 text-[10px] font-mono">{opt.result_key}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <span className="text-gray-600 text-[10px]">⚡</span>
+                                      <input
+                                        type="number"
+                                        min="1" max="9"
+                                        value={opt.energy_cost}
+                                        onChange={e => updateEnergyCost(evIdx, optIdx, e.target.value)}
+                                        className="w-8 bg-white/8 border border-white/10 rounded text-center text-white text-xs font-bold focus:outline-none focus:border-indigo-500"
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <span className="text-gray-600 text-[10px]">⚡</span>
-                                <input
-                                  type="number"
-                                  min="1" max="9"
-                                  value={opt.energy_cost}
-                                  onChange={e => updateEnergyCost(evIdx, optIdx, e.target.value)}
-                                  className="w-8 bg-white/8 border border-white/10 rounded text-center text-white text-xs font-bold focus:outline-none focus:border-indigo-500"
-                                />
+                              <div className={`text-right text-[11px] font-mono font-semibold mt-1 ${
+                                optSum === 10 ? 'text-green-400' : 'text-red-400'
+                              }`}>
+                                ⚡ Sum: {optSum}/10 {optSum === 10 ? '✓' : '— must equal 10'}
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            </>
+                          )
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -591,53 +669,93 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
 }
 
 // ── Rankings tab ──────────────────────────────────────────────────────────────
-function RankingsTab({ sprintId }) {
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
+function RankingsTab({ sprintId, gwCount }) {
+  const [activeWeek, setActiveWeek] = useState('overall')
+  const [rows, setRows]             = useState([])
+  const [loading, setLoading]       = useState(true)
 
   useEffect(() => {
-    getRankings({ sprint_id: sprintId })
+    setLoading(true)
+    const params = { sprint_id: sprintId }
+    if (activeWeek !== 'overall') params.week = activeWeek
+    getRankings(params)
       .then(r => setRows(r.data.rows || []))
-      .catch(() => {})
+      .catch(() => setRows([]))
       .finally(() => setLoading(false))
-  }, [sprintId])
+  }, [sprintId, activeWeek])
 
-  if (loading) return <div className="text-center text-gray-500 py-12">Loading rankings…</div>
-  if (!rows.length) return <div className="text-center text-gray-500 py-12">No participants yet</div>
+  const weeks = Array.from({ length: gwCount }, (_, i) => i + 1)
+  const tabs  = ['overall', ...weeks]
+
+  const isWeek = activeWeek !== 'overall'
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-gray-500 text-xs border-b border-white/8">
-            {['#','Player','Division','LP','Correct','Perfect','GWs','Outcome'].map(h => (
-              <th key={h} className={`py-3 px-3 ${h === '#' ? 'text-left' : h === 'LP' || h === 'Correct' || h === 'Perfect' || h === 'GWs' ? 'text-right' : 'text-left'}`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.user_id} className="border-b border-white/5 hover:bg-white/2">
-              <td className="py-2.5 px-3 text-gray-500 text-xs">{r.rank}</td>
-              <td className="py-2.5 px-3 text-white">{r.display_name || r.email?.split('@')[0]}</td>
-              <td className="py-2.5 px-3 text-xs">{r.division_icon} {r.division_name}</td>
-              <td className="py-2.5 px-3 text-right font-black text-indigo-400">{r.total_league_points}</td>
-              <td className="py-2.5 px-3 text-right text-gray-300">{r.total_correct_picks}</td>
-              <td className="py-2.5 px-3 text-right text-yellow-400">{r.perfect_weeks}⭐</td>
-              <td className="py-2.5 px-3 text-right text-gray-500">{r.gameweeks_participated}</td>
-              <td className="py-2.5 px-3">
-                {r.is_rookie ? (
-                  <span className="text-xs bg-yellow-900/30 text-yellow-400 px-2 py-0.5 rounded-full">Rookie</span>
-                ) : r.sprint_outcome === 'promoted' ? (
-                  <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded-full">⬆ Up</span>
-                ) : r.sprint_outcome === 'relegated' ? (
-                  <span className="text-xs bg-red-900/30 text-red-400 px-2 py-0.5 rounded-full">⬇ Down</span>
-                ) : <span className="text-xs text-gray-600">—</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {/* Sub-tabs */}
+      <div className="flex gap-1 p-4 border-b border-white/8 overflow-x-auto">
+        {tabs.map(t => (
+          <button key={t}
+            onClick={() => setActiveWeek(t)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              activeWeek === t
+                ? 'bg-indigo-600 text-white'
+                : 'bg-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/10'
+            }`}
+          >
+            {t === 'overall' ? 'Overall' : `Week ${t}`}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-center text-gray-500 py-12">Loading rankings…</div>}
+      {!loading && !rows.length && <div className="text-center text-gray-500 py-12">No data yet for this {isWeek ? 'week' : 'sprint'}</div>}
+
+      {!loading && rows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-500 text-xs border-b border-white/8">
+                {isWeek
+                  ? ['#', 'Player', 'LP', 'Correct/6', 'Perfect'].map(h => (
+                    <th key={h} className={`py-3 px-3 ${h === '#' || h === 'Player' ? 'text-left' : 'text-right'}`}>{h}</th>
+                  ))
+                  : ['#', 'Player', 'Division', 'LP', 'Correct', 'Perfect', 'GWs', 'Outcome'].map(h => (
+                    <th key={h} className={`py-3 px-3 ${h === '#' || h === 'Player' || h === 'Division' || h === 'Outcome' ? 'text-left' : 'text-right'}`}>{h}</th>
+                  ))
+                }
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.user_id} className="border-b border-white/5 hover:bg-white/2">
+                  <td className="py-2.5 px-3 text-gray-500 text-xs">{r.rank}</td>
+                  <td className="py-2.5 px-3 text-white">{r.display_name || r.email?.split('@')[0]}</td>
+                  {!isWeek && <td className="py-2.5 px-3 text-xs">{r.division_icon} {r.division_name}</td>}
+                  <td className="py-2.5 px-3 text-right font-black text-indigo-400">{r.total_league_points}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-300">{r.total_correct_picks}{isWeek ? '/6' : ''}</td>
+                  {isWeek
+                    ? <td className="py-2.5 px-3 text-right">{r.is_perfect_week ? <span className="text-yellow-400">⭐</span> : <span className="text-gray-700">—</span>}</td>
+                    : <>
+                        <td className="py-2.5 px-3 text-right text-yellow-400">{r.perfect_weeks}⭐</td>
+                        <td className="py-2.5 px-3 text-right text-gray-500">{r.gameweeks_participated}</td>
+                        <td className="py-2.5 px-3">
+                          {r.is_rookie
+                            ? <span className="text-xs bg-yellow-900/30 text-yellow-400 px-2 py-0.5 rounded-full">Rookie</span>
+                            : r.sprint_outcome === 'promoted'
+                              ? <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded-full">⬆ Up</span>
+                              : r.sprint_outcome === 'relegated'
+                                ? <span className="text-xs bg-red-900/30 text-red-400 px-2 py-0.5 rounded-full">⬇ Down</span>
+                                : <span className="text-xs text-gray-600">—</span>
+                          }
+                        </td>
+                      </>
+                  }
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -666,29 +784,84 @@ function SprintSettings({ sprint, onSaved }) {
     }
   }
 
+  const gwCount = sprint.gameweek_count || 4
+  const gwByWeek = {}
+  for (const gw of (sprint.gameweeks || [])) gwByWeek[gw.sprint_week] = gw
+
   return (
-    <form onSubmit={handleSave} className="bg-[#0d1117] border border-white/8 rounded-2xl p-5 space-y-4">
-      <h3 className="text-white font-semibold">Sprint settings</h3>
-      {msg && <p className="text-indigo-300 text-xs">{msg}</p>}
-      <div>
-        <label className="text-gray-400 text-xs mb-1 block">Name</label>
-        <input className={inp} value={form.name} onChange={e => set('name', e.target.value)} />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-4">
+      <form onSubmit={handleSave} className="bg-[#0d1117] border border-white/8 rounded-2xl p-5 space-y-4">
+        <h3 className="text-white font-semibold">Sprint settings</h3>
+        {msg && <p className="text-indigo-300 text-xs">{msg}</p>}
         <div>
-          <label className="text-gray-400 text-xs mb-1 block">Start</label>
-          <input className={inp} type="datetime-local" value={form.start_date} onChange={e => set('start_date', e.target.value)} />
+          <label className="text-gray-400 text-xs mb-1 block">Name</label>
+          <input className={inp} value={form.name} onChange={e => set('name', e.target.value)} />
         </div>
-        <div>
-          <label className="text-gray-400 text-xs mb-1 block">End</label>
-          <input className={inp} type="datetime-local" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Start</label>
+            <input className={inp} type="datetime-local" value={form.start_date} onChange={e => set('start_date', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">End</label>
+            <input className={inp} type="datetime-local" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+          </div>
         </div>
+        <button type="submit" disabled={saving}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm transition-colors disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      </form>
+
+      {/* Per-gameweek settings overview */}
+      <div className="bg-[#0d1117] border border-white/8 rounded-2xl p-5 space-y-4">
+        <h3 className="text-white font-semibold">Gameweek settings</h3>
+        <div className="grid grid-cols-1 gap-3">
+          {Array.from({ length: gwCount }, (_, i) => i + 1).map(week => {
+            const gw = gwByWeek[week]
+            const statusInfo = gw ? GW_STATUS[gw.status] : null
+            return (
+              <div key={week} className="flex items-center gap-4 bg-white/3 border border-white/8 rounded-2xl px-4 py-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-base flex-shrink-0 ${
+                  !gw ? 'bg-white/5 border border-white/10 text-gray-600' :
+                  gw.status === 'PUBLISHED' ? 'bg-blue-600/25 border border-blue-500/30 text-blue-300' :
+                  gw.status === 'FINISHED'  ? 'bg-purple-600/25 border border-purple-500/30 text-purple-300' :
+                  gw.status === 'LOCKED'    ? 'bg-yellow-600/25 border border-yellow-500/30 text-yellow-300' :
+                  'bg-white/10 border border-white/15 text-white'
+                }`}>
+                  {week}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white text-sm font-semibold">Week {week}</span>
+                    {statusInfo
+                      ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusInfo.bg} ${statusInfo.color}`}>{gw.status}</span>
+                      : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-600">EMPTY</span>
+                    }
+                  </div>
+                  {gw
+                    ? <p className="text-gray-500 text-xs mt-0.5">
+                        Lock: {new Date(gw.lock_time).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {gw.entry_count != null ? ` · ${gw.entry_count} entries` : ''}
+                        {gw.event_count != null ? ` · ${gw.event_count}/15 events` : ''}
+                      </p>
+                    : <p className="text-gray-700 text-xs mt-0.5">No gameweek configured yet</p>
+                  }
+                </div>
+                <div className="text-right flex-shrink-0">
+                  {gw && (
+                    <p className={`text-xs font-bold ${gw.event_count >= 15 ? 'text-green-400' : 'text-gray-600'}`}>
+                      {gw.event_count ?? 0}/15
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <p className="text-gray-600 text-xs">Lock times and events are managed from the Gameweeks tab.</p>
       </div>
-      <button type="submit" disabled={saving}
-        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm transition-colors disabled:opacity-50">
-        {saving ? 'Saving…' : 'Save changes'}
-      </button>
-    </form>
+    </div>
   )
 }
 
@@ -982,7 +1155,7 @@ export default function SprintDetailPage() {
       {/* Rankings tab */}
       {activeTab === 'rankings' && (
         <div className="bg-[#0d1117] border border-white/8 rounded-2xl overflow-hidden">
-          <RankingsTab sprintId={id} />
+          <RankingsTab sprintId={id} gwCount={gwCount} />
         </div>
       )}
 
