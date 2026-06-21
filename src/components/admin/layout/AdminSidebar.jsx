@@ -5,18 +5,17 @@ const SECTIONS = [
   {
     label: 'MAIN',
     items: [
-      { icon: '📊', label: 'Dashboard',     path: '/admin/dashboard' },
-      { icon: '👥', label: 'Users',         path: '/admin/users' },
-      { icon: '🏆', label: 'Leagues',       path: '/admin/leagues' },
-      { icon: '🌍', label: 'Competitions',  path: '/admin/competitions' },
+      { icon: '📊', label: 'Dashboard',    path: '/admin/dashboard' },
+      { icon: '👥', label: 'Users',        path: '/admin/users' },
+      { icon: '🏆', label: 'Leagues',      path: '/admin/leagues' },
+      { icon: '🌍', label: 'Competitions', path: '/admin/competitions' },
     ],
   },
   {
-    label: 'GAMEWEEKS',
+    label: '6 TO GLORY',
     items: [
-      { icon: '🏗️',  label: 'Builder',      path: '/admin/gameweeks/new' },
-      { icon: '⚡', label: 'Odds Review',   path: '/admin/gameweeks' },
-      { icon: '⚽', label: 'Event Editor',  path: '/admin/gameweeks' },
+      { icon: '🎖️', label: 'Divisions',   path: '/admin/divisions' },
+      { icon: '⚡', label: 'Sprints',     path: '/admin/sprints' },
     ],
   },
   {
