@@ -9,3 +9,4 @@ export const getCompetitionGameweeks  = (id)       => client.get(`/admin/competi
 export const getCompetitionStandings  = (id)       => client.get(`/admin/competitions/${id}/standings`)
 export const browseCompetitions       = ()         => client.get('/admin/competitions/browse')
 export const importCompetition        = (data)     => client.post('/admin/competitions/import', data)
+export const refreshFixtureResults    = (data)     => client.post('/admin/fixtures/refresh-results', data)

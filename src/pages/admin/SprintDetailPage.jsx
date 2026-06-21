@@ -6,6 +6,7 @@ import {
   importFixturesByRange,
 } from '../../api/sprints'
 import { publishGameweek } from '../../api/gameweeks'
+import { refreshFixtureResults } from '../../api/competitions'
 
 const STATUS_DOT = {
   draft:     'bg-gray-500',
@@ -117,7 +118,6 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const [err, setErr]             = useState('')
   const [msg, setMsg]             = useState('')
   const [expanded, setExpanded]   = useState(true)
-  const [leagueLimit, setLeagueLimit] = useState({})  // league → show all
 
   const handleImport = async () => {
     setImporting(true); setImportMsg('')
@@ -376,42 +376,29 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                 )}
 
                 {groupedFixtures.length > 0 && (
-                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
-                    {groupedFixtures.map(([league, fixes]) => {
-                      const limit = leagueLimit[league]
-                      const visible = limit ? fixes : fixes.slice(0, 8)
-                      const hasMore = fixes.length > 8 && !limit
-                      return (
-                        <div key={league}>
-                          <div className="flex items-center gap-2 mb-2 sticky top-0 bg-[#0d1117] py-1 z-10">
-                            <div className="h-px flex-1 bg-white/8" />
-                            <span className="text-gray-500 text-[11px] font-semibold tracking-wider uppercase flex-shrink-0">
-                              {league}
-                            </span>
-                            <div className="h-px flex-1 bg-white/8" />
-                          </div>
-                          <div className="space-y-1.5">
-                            {visible.map(fix => (
-                              <FixtureRow
-                                key={fix.id}
-                                fix={fix}
-                                selected={isSelected(fix.id)}
-                                disabled={!isSelected(fix.id) && events.length >= 15}
-                                onToggle={toggleFixture}
-                              />
-                            ))}
-                            {hasMore && (
-                              <button
-                                onClick={() => setLeagueLimit(l => ({ ...l, [league]: true }))}
-                                className="w-full py-2 text-gray-600 hover:text-gray-400 text-xs transition-colors"
-                              >
-                                + {fixes.length - 8} more matches in {league}
-                              </button>
-                            )}
-                          </div>
+                  <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                    {groupedFixtures.map(([league, fixes]) => (
+                      <div key={league}>
+                        <div className="flex items-center gap-2 mb-2 sticky top-0 bg-[#0d1117] py-1 z-10">
+                          <div className="h-px flex-1 bg-white/8" />
+                          <span className="text-gray-500 text-[11px] font-semibold tracking-wider uppercase flex-shrink-0">
+                            {league} ({fixes.length})
+                          </span>
+                          <div className="h-px flex-1 bg-white/8" />
                         </div>
-                      )
-                    })}
+                        <div className="space-y-1.5">
+                          {fixes.map(fix => (
+                            <FixtureRow
+                              key={fix.id}
+                              fix={fix}
+                              selected={isSelected(fix.id)}
+                              disabled={!isSelected(fix.id) && events.length >= 15}
+                              onToggle={toggleFixture}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -619,15 +606,36 @@ export default function SprintDetailPage() {
 
   useEffect(() => { load() }, [load])
 
+  const [fixtureErr, setFixtureErr]     = useState('')
+  const [refreshing, setRefreshing]     = useState(false)
+
+  const handleRefreshResults = async () => {
+    if (!sprint?.start_date || !sprint?.end_date) return
+    setRefreshing(true)
+    try {
+      const res = await refreshFixtureResults({
+        date_from: sprint.start_date.slice(0, 10),
+        date_to:   sprint.end_date.slice(0, 10),
+      })
+      flash(res.data.message || `Refreshed ${res.data.updated} fixture results`)
+      loadFixtures()
+    } catch (e) {
+      flash('Refresh failed: ' + (e.response?.data?.error || e.message))
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const loadFixtures = useCallback(() => {
     if (!sprint?.start_date || !sprint?.end_date) return
     setLoadingFix(true)
+    setFixtureErr('')
     getAvailableFixtures({
-      date_from: sprint.start_date.slice(0, 10) + 'T00:00:00',
-      date_to:   sprint.end_date.slice(0, 10)   + 'T23:59:59',
+      date_from: sprint.start_date.slice(0, 10),
+      date_to:   sprint.end_date.slice(0, 10),
     })
-      .then(r => setAllFixtures(r.data || []))
-      .catch(() => {})
+      .then(r => setAllFixtures(Array.isArray(r.data) ? r.data : []))
+      .catch(e => setFixtureErr(e.response?.data?.error || e.message || 'Failed to load fixtures'))
       .finally(() => setLoadingFix(false))
   }, [sprint?.id, sprint?.start_date, sprint?.end_date])
 
@@ -758,6 +766,19 @@ export default function SprintDetailPage() {
             Settle sprint
           </button>
         )}
+        {['live', 'scheduled'].includes(sprint.status) && (
+          <button
+            onClick={handleRefreshResults}
+            disabled={refreshing}
+            className="px-4 py-2 bg-yellow-600/15 hover:bg-yellow-600/30 text-yellow-400 border border-yellow-500/20 rounded-xl text-sm transition-colors disabled:opacity-40 flex items-center gap-2"
+            title="Re-fetches latest scores for all non-finished fixtures in this sprint"
+          >
+            {refreshing
+              ? <><span className="w-3 h-3 border border-yellow-400/30 border-t-yellow-400 rounded-full animate-spin" />Refreshing…</>
+              : '↻ Refresh results'
+            }
+          </button>
+        )}
       </div>
 
       {/* Confirm dialogs */}
@@ -806,7 +827,22 @@ export default function SprintDetailPage() {
           {loadingFix && (
             <div className="flex items-center gap-2 text-gray-600 text-xs">
               <div className="w-3 h-3 border border-gray-600 border-t-indigo-400 rounded-full animate-spin" />
-              Fetching available fixtures for this sprint period…
+              Loading fixtures for this sprint period…
+            </div>
+          )}
+          {fixtureErr && (
+            <div className="bg-red-900/15 border border-red-500/20 rounded-xl px-4 py-2 text-red-400 text-xs">
+              Fixture load error: {fixtureErr}
+            </div>
+          )}
+          {!loadingFix && !fixtureErr && allFixtures.length === 0 && (
+            <div className="bg-yellow-900/10 border border-yellow-500/20 rounded-xl px-4 py-2 text-yellow-600 text-xs">
+              No fixtures cached for this sprint period ({sprint.start_date?.slice(0,10)} → {sprint.end_date?.slice(0,10)}). Go to Competitions → Import a competition, then click "Sync fixtures" inside any week below.
+            </div>
+          )}
+          {!loadingFix && allFixtures.length > 0 && (
+            <div className="text-xs text-gray-600 px-1">
+              {allFixtures.length} fixtures available across {sprint.gameweek_count || 4} weeks
             </div>
           )}
           {Array.from({ length: gwCount }, (_, i) => i + 1).map(week => (
