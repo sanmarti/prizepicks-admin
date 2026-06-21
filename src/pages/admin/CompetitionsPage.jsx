@@ -1,228 +1,144 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { useApi } from '../../hooks/useApi'
-import { getCompetitions, createCompetition, updateCompetition, deleteCompetition } from '../../api/competitions'
+import { browseCompetitions, importCompetition, deleteCompetition } from '../../api/competitions'
 import { useToast } from '../../hooks/useToast'
-import StatusBadge from '../../components/admin/ui/StatusBadge'
-import ActionButton from '../../components/admin/ui/ActionButton'
 import ConfirmModal from '../../components/admin/ui/ConfirmModal'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
-const API_LEAGUES = [
-  { id: '39',  name: 'Premier League' },
-  { id: '140', name: 'La Liga' },
-  { id: '2',   name: 'UEFA Champions League' },
-  { id: '135', name: 'Serie A' },
-  { id: '61',  name: 'Ligue 1' },
-  { id: '78',  name: 'Bundesliga' },
-  { id: '1',   name: 'FIFA World Cup' },
-  { id: '4',   name: 'UEFA Euro' },
-]
+const SEASONS = ['2026', '2025', '2024', '2023', '2022']
 
-const API_SEASONS = ['2022', '2023', '2024', '2025', '2026']
-
-const STATUS_COLORS = {
-  FUTURE:      'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  IN_PROGRESS: 'bg-green-500/15 text-green-400 border-green-500/20',
-  COMPLETED:   'bg-gray-500/15 text-gray-400 border-gray-500/20',
+const TYPE_STYLE = {
+  League:     'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  Cup:        'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
+  Tournament: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
 }
 
-const EMPTY_FORM = {
-  name: '', description: '', logo_url: '', cover_url: '',
-  start_date: '', end_date: '', num_weeks: '',
-  api_league_id: '', api_season: '',
-}
-
-function CompetitionStatus({ status }) {
-  const cls = STATUS_COLORS[status] ?? STATUS_COLORS.FUTURE
+function TypeBadge({ type }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${
-        status === 'IN_PROGRESS' ? 'bg-green-400 animate-pulse' :
-        status === 'FUTURE'      ? 'bg-blue-400' : 'bg-gray-400'
-      }`}/>
-      {status?.replace('_', ' ')}
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${TYPE_STYLE[type] ?? TYPE_STYLE.League}`}>
+      {type}
     </span>
   )
 }
 
-function CompetitionCard({ comp, onEdit, onDelete, onCalendar }) {
-  const weeks = comp.num_weeks
-  const start = new Date(comp.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-  const end   = new Date(comp.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-
+function ImportedEntry({ entry, onView, onDelete }) {
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
   return (
-    <div className="bg-[#111520] border border-white/8 rounded-2xl overflow-hidden group hover:border-white/15 transition-all">
-      {/* Cover */}
-      <div className="relative h-32 bg-gradient-to-br from-indigo-900/40 to-purple-900/30 overflow-hidden">
-        {comp.cover_url ? (
-          <img src={comp.cover_url} alt="" className="w-full h-full object-cover opacity-60"/>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-6xl opacity-20">⚽</div>
+    <div className="flex items-center justify-between bg-green-900/10 border border-green-500/20 rounded-xl px-3 py-2 mt-2">
+      <div className="text-xs text-green-400">
+        <span className="font-semibold">Season {entry.api_season}</span>
+        <span className="text-green-600 ml-2">{entry.fixture_count} fixtures</span>
+        {entry.last_synced && (
+          <span className="text-green-700 ml-2">· last sync {fmtDate(entry.last_synced)}</span>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#111520] via-transparent to-transparent"/>
-        <div className="absolute top-3 right-3">
-          <CompetitionStatus status={comp.status}/>
-        </div>
-        {/* Logo */}
-        <div className="absolute bottom-3 left-4 flex items-end gap-3">
-          {comp.logo_url ? (
-            <img src={comp.logo_url} alt="" className="w-10 h-10 rounded-xl object-cover ring-2 ring-white/20"/>
-          ) : (
-            <div className="w-10 h-10 rounded-xl bg-indigo-600/40 border border-indigo-500/30 flex items-center justify-center text-xl">🏆</div>
-          )}
-          <h3 className="text-white font-bold text-base pb-0.5">{comp.name}</h3>
-        </div>
       </div>
-
-      {/* Body */}
-      <div className="px-4 py-3 space-y-3">
-        {comp.description && (
-          <p className="text-gray-400 text-xs leading-relaxed line-clamp-2">{comp.description}</p>
-        )}
-
-        <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="bg-white/3 rounded-lg p-2 text-center">
-            <p className="text-gray-500 mb-0.5">Weeks</p>
-            <p className="text-white font-bold">{weeks}</p>
-          </div>
-          <div className="bg-white/3 rounded-lg p-2 text-center">
-            <p className="text-gray-500 mb-0.5">Start</p>
-            <p className="text-white font-medium text-[10px]">{start}</p>
-          </div>
-          <div className="bg-white/3 rounded-lg p-2 text-center">
-            <p className="text-gray-500 mb-0.5">End</p>
-            <p className="text-white font-medium text-[10px]">{end}</p>
-          </div>
-        </div>
-
-        <div className="flex gap-2 pt-1">
-          <ActionButton size="sm" variant="secondary" onClick={() => onCalendar(comp)} className="flex-1 justify-center">
-            📅 Calendar
-          </ActionButton>
-          <ActionButton size="sm" variant="secondary" onClick={() => onEdit(comp)}>
-            ✏️ Edit
-          </ActionButton>
-          <ActionButton size="sm" variant="danger" onClick={() => onDelete(comp)}>
-            🗑
-          </ActionButton>
-        </div>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onView(entry.id)}
+          className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-0.5 rounded border border-indigo-500/20 hover:border-indigo-500/40"
+        >
+          View
+        </button>
+        <button
+          onClick={() => onDelete(entry)}
+          className="text-[11px] text-red-400 hover:text-red-300 transition-colors px-2 py-0.5 rounded border border-red-500/20 hover:border-red-500/40"
+        >
+          Remove
+        </button>
       </div>
     </div>
   )
 }
 
-function CompetitionForm({ initial, onSave, onCancel, saving }) {
-  const [form, setForm] = useState(initial ?? EMPTY_FORM)
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+function CompetitionCard({ comp, onImported, onDeleteEntry, onView }) {
+  const [season, setSeason]   = useState(String(comp.default_season))
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg]         = useState('')
+  const [err, setErr]         = useState('')
 
-  const isValid = form.name && form.start_date && form.end_date && form.num_weeks
+  const alreadyImported = comp.imported.some(e => e.api_season === season)
+
+  const handleImport = async () => {
+    setLoading(true); setMsg(''); setErr('')
+    try {
+      const res = await importCompetition({ api_league_id: comp.api_league_id, season })
+      setMsg(res.data.message)
+      onImported()
+      setTimeout(() => setMsg(''), 6000)
+    } catch (e) {
+      setErr(e.response?.data?.message || e.response?.data?.error || 'Import failed')
+      setTimeout(() => setErr(''), 6000)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Cover preview */}
-      {form.cover_url && (
-        <div className="h-32 rounded-xl overflow-hidden relative">
-          <img src={form.cover_url} alt="" className="w-full h-full object-cover"/>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"/>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-1.5">Competition Name *</label>
-          <input value={form.name} onChange={e => set('name', e.target.value)}
-            placeholder="Premier League 2025/26"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
-        </div>
-
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-400 mb-1.5">Description</label>
-          <textarea value={form.description} onChange={e => set('description', e.target.value)}
-            placeholder="Brief description of the competition…" rows={2}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none"/>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">📅 Start Date *</label>
-          <input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-            style={{ colorScheme: 'dark' }}/>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">📅 End Date *</label>
-          <input type="date" value={form.end_date} onChange={e => set('end_date', e.target.value)}
-            min={form.start_date}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-            style={{ colorScheme: 'dark' }}/>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Number of Weeks *</label>
-          <input type="number" min={1} max={52} value={form.num_weeks} onChange={e => set('num_weeks', e.target.value)}
-            placeholder="38"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Status</label>
-          <div className="px-3 py-2.5 bg-white/3 border border-white/8 rounded-xl">
-            <CompetitionStatus status={
-              !form.start_date ? 'FUTURE' :
-              new Date() < new Date(form.start_date) ? 'FUTURE' :
-              new Date() > new Date(form.end_date) ? 'COMPLETED' : 'IN_PROGRESS'
-            }/>
-            <p className="text-[10px] text-gray-500 mt-1">Auto-computed from dates</p>
+    <div className="bg-[#111520] border border-white/8 rounded-2xl overflow-hidden flex flex-col hover:border-white/15 transition-colors">
+      {/* Header with logo */}
+      <div className="relative h-20 bg-gradient-to-br from-indigo-950/60 via-[#0d1117] to-[#111520] overflow-hidden">
+        <img
+          src={comp.logo_url}
+          alt=""
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 object-contain opacity-20"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#111520]" />
+        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2 flex items-center gap-2">
+          <img
+            src={comp.logo_url}
+            alt={comp.name}
+            className="w-8 h-8 object-contain flex-shrink-0"
+            onError={e => { e.target.style.display = 'none' }}
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-semibold text-sm leading-tight truncate">{comp.name}</p>
+            <p className="text-gray-500 text-[11px]">{comp.flag} {comp.country}</p>
           </div>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Logo URL</label>
-          <input value={form.logo_url} onChange={e => set('logo_url', e.target.value)}
-            placeholder="https://… (square image)"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
-        </div>
-
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Cover URL</label>
-          <input value={form.cover_url} onChange={e => set('cover_url', e.target.value)}
-            placeholder="https://… (wide banner image)"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
-        </div>
-
-        <div className="col-span-2 border-t border-white/8 pt-3">
-          <p className="text-xs text-gray-500 mb-3">API-Football mapping — required for the match calendar</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">League</label>
-              <select value={form.api_league_id} onChange={e => set('api_league_id', e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <option value="">— not set —</option>
-                {API_LEAGUES.map(l => <option key={l.id} value={l.id}>{l.name} (#{l.id})</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Season</label>
-              <select value={form.api_season} onChange={e => set('api_season', e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <option value="">— not set —</option>
-                {API_SEASONS.map(s => (
-                  <option key={s} value={s}>
-                    {s}/{parseInt(s)+1-2000} {parseInt(s) <= 2024 ? '✓ free' : '(paid)'}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <TypeBadge type={comp.type} />
         </div>
       </div>
 
-      <div className="flex gap-3 justify-end pt-2">
-        <ActionButton variant="secondary" onClick={onCancel}>Cancel</ActionButton>
-        <ActionButton onClick={() => onSave(form)} loading={saving} disabled={!isValid}>
-          {initial ? 'Save Changes' : 'Create Competition'}
-        </ActionButton>
+      {/* Body */}
+      <div className="p-3 flex-1 flex flex-col gap-2">
+        {/* Imported entries */}
+        {comp.imported.length > 0 && comp.imported.map(entry => (
+          <ImportedEntry
+            key={entry.id}
+            entry={entry}
+            onView={onView}
+            onDelete={onDeleteEntry}
+          />
+        ))}
+
+        {/* Import row */}
+        <div className="flex gap-2 mt-auto pt-1">
+          <select
+            value={season}
+            onChange={e => setSeason(e.target.value)}
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+          >
+            {SEASONS.map(s => (
+              <option key={s} value={s}>{s}/{(parseInt(s)+1).toString().slice(-2)}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleImport}
+            disabled={loading}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-40 ${
+              alreadyImported
+                ? 'bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white'
+                : 'bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-500/30'
+            }`}
+          >
+            {loading
+              ? <><span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" /> Importing…</>
+              : alreadyImported ? '↻ Re-sync' : '↓ Import'
+            }
+          </button>
+        </div>
+
+        {msg && <p className="text-green-400 text-[11px] leading-tight">{msg}</p>}
+        {err && <p className="text-red-400 text-[11px] leading-tight">{err}</p>}
       </div>
     </div>
   )
@@ -230,137 +146,107 @@ function CompetitionForm({ initial, onSave, onCancel, saving }) {
 
 export default function CompetitionsPage() {
   const navigate = useNavigate()
-  const { data: competitions, loading, refetch } = useApi(getCompetitions)
   const { toasts, toast } = useToast()
 
-  const [showForm, setShowForm]       = useState(false)
-  const [editTarget, setEditTarget]   = useState(null)
+  const [competitions, setCompetitions] = useState([])
+  const [loading, setLoading]           = useState(true)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [saving, setSaving]           = useState(false)
+  const [filter, setFilter]             = useState('all')
 
-  const statusOrder = { IN_PROGRESS: 0, FUTURE: 1, COMPLETED: 2 }
-  const sorted = [...(competitions ?? [])].sort((a, b) =>
-    (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3)
-  )
-
-  async function handleSave(form) {
-    setSaving(true)
-    try {
-      if (editTarget) {
-        await updateCompetition(editTarget.id, form)
-        toast(`"${form.name}" updated`)
-      } else {
-        await createCompetition(form)
-        toast(`"${form.name}" created`)
-      }
-      setShowForm(false)
-      setEditTarget(null)
-      refetch()
-    } catch (e) {
-      toast(e.response?.data?.error ?? 'Save failed', 'error')
-    } finally { setSaving(false) }
+  const load = () => {
+    setLoading(true)
+    browseCompetitions()
+      .then(r => setCompetitions(r.data))
+      .catch(() => toast('Failed to load competitions', 'error'))
+      .finally(() => setLoading(false))
   }
+
+  useEffect(() => { load() }, [])
 
   async function handleDelete() {
     try {
       await deleteCompetition(deleteTarget.id)
-      toast(`"${deleteTarget.name}" deleted`)
+      toast(`Season ${deleteTarget.api_season} removed`)
       setDeleteTarget(null)
-      refetch()
-    } catch { toast('Delete failed', 'error') }
+      load()
+    } catch {
+      toast('Delete failed', 'error')
+    }
   }
 
-  function handleEdit(comp) {
-    setEditTarget(comp)
-    setShowForm(true)
-  }
+  const filtered = competitions.filter(c => {
+    if (filter === 'imported') return c.imported.length > 0
+    if (filter === 'not-imported') return c.imported.length === 0
+    return true
+  })
 
-  function handleCalendar(comp) {
-    navigate(`/admin/competitions/${comp.id}`)
-  }
-
-  const counts = {
-    IN_PROGRESS: sorted.filter(c => c.status === 'IN_PROGRESS').length,
-    FUTURE:      sorted.filter(c => c.status === 'FUTURE').length,
-    COMPLETED:   sorted.filter(c => c.status === 'COMPLETED').length,
-  }
+  const importedCount = competitions.filter(c => c.imported.length > 0).length
 
   return (
     <>
-      <ToastContainer toasts={toasts}/>
+      <ToastContainer toasts={toasts} />
       <ConfirmModal
-        open={!!deleteTarget} danger
-        title={`Delete "${deleteTarget?.name}"?`}
-        message="This will remove the competition. Leagues linked to it will lose their competition reference."
-        confirmLabel="Delete"
+        open={!!deleteTarget}
+        danger
+        title={`Remove season ${deleteTarget?.api_season}?`}
+        message="This will delete the competition record and all its cached fixtures and standings. Gameweek events that reference these fixtures will lose their competition link."
+        confirmLabel="Remove"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {[
-              { label: 'Live', count: counts.IN_PROGRESS, color: 'text-green-400' },
-              { label: 'Upcoming', count: counts.FUTURE, color: 'text-blue-400' },
-              { label: 'Completed', count: counts.COMPLETED, color: 'text-gray-400' },
-            ].map(({ label, count, color }) => (
-              <div key={label} className="flex items-center gap-1.5">
-                <span className={`font-bold text-lg ${color}`}>{count}</span>
-                <span className="text-gray-500 text-sm">{label}</span>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="text-green-400 font-bold text-lg">{importedCount}</span>
+                <span className="text-gray-500 text-sm">Imported</span>
               </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400 font-bold text-lg">{competitions.length - importedCount}</span>
+                <span className="text-gray-500 text-sm">Available</span>
+              </div>
+            </div>
+            <p className="text-gray-600 text-xs mt-1">
+              Select a competition, choose a season, and click Import — fixtures and standings are cached in your DB.
+            </p>
+          </div>
+
+          {/* Filter pills */}
+          <div className="flex gap-2 flex-shrink-0">
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'imported', label: '✓ Imported' },
+              { key: 'not-imported', label: 'Not imported' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                  filter === key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
-          {!showForm && (
-            <ActionButton onClick={() => { setEditTarget(null); setShowForm(true) }}>
-              + New Competition
-            </ActionButton>
-          )}
         </div>
 
-        {/* Inline form */}
-        {showForm && (
-          <div className="bg-[#111520] border border-indigo-500/30 rounded-2xl p-6">
-            <h2 className="text-white font-semibold text-lg mb-5">
-              {editTarget ? `Edit: ${editTarget.name}` : 'New Competition'}
-            </h2>
-            <CompetitionForm
-              initial={editTarget ? {
-                name:          editTarget.name,
-                description:   editTarget.description ?? '',
-                logo_url:      editTarget.logo_url ?? '',
-                cover_url:     editTarget.cover_url ?? '',
-                start_date:    editTarget.start_date?.split('T')[0] ?? '',
-                end_date:      editTarget.end_date?.split('T')[0] ?? '',
-                num_weeks:     editTarget.num_weeks ?? '',
-                api_league_id: editTarget.api_league_id ?? '',
-                api_season:    editTarget.api_season ?? '',
-              } : null}
-              onSave={handleSave}
-              onCancel={() => { setShowForm(false); setEditTarget(null) }}
-              saving={saving}
-            />
-          </div>
-        )}
-
-        {/* Grid */}
         {loading ? (
           <div className="text-center py-20 text-gray-400">Loading competitions…</div>
-        ) : sorted.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-gray-400 text-lg mb-2">No competitions yet</p>
-            <p className="text-gray-600 text-sm">Create your first competition to get started</p>
-          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sorted.map(comp => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filtered.map(comp => (
               <CompetitionCard
-                key={comp.id}
+                key={comp.api_league_id}
                 comp={comp}
-                onEdit={handleEdit}
-                onDelete={setDeleteTarget}
-                onCalendar={handleCalendar}
+                onImported={load}
+                onDeleteEntry={setDeleteTarget}
+                onView={id => navigate(`/admin/competitions/${id}`)}
               />
             ))}
           </div>

@@ -351,11 +351,11 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                     onClick={handleImport}
                     disabled={importing || loadingFixtures}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-40"
-                    title="Fetch from API-Football and cache in DB (uses 1 API call)"
+                    title="Re-syncs fixtures from all imported competitions for this date range"
                   >
                     {importing
-                      ? <><span className="w-3 h-3 border border-gray-500 border-t-white rounded-full animate-spin" />Importing…</>
-                      : <>↓ Import from API</>
+                      ? <><span className="w-3 h-3 border border-gray-500 border-t-white rounded-full animate-spin" />Syncing…</>
+                      : <>↻ Sync fixtures</>
                     }
                   </button>
                 </div>
@@ -370,10 +370,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                   <div className="bg-white/3 border border-dashed border-white/10 rounded-2xl p-8 text-center">
                     <p className="text-gray-500 text-sm">No fixtures cached for this week</p>
                     <p className="text-gray-700 text-xs mt-2">
-                      Click "Import from API" above to fetch from API-Football and cache results in the DB.
-                    </p>
-                    <p className="text-gray-700 text-xs mt-1">
-                      Note: league schedules for {weekStart.getFullYear()}/{weekStart.getFullYear()+1} may not be published yet.
+                      Go to <strong className="text-gray-500">Competitions</strong> to import competitions first, then click "Sync fixtures" above.
                     </p>
                   </div>
                 )}
