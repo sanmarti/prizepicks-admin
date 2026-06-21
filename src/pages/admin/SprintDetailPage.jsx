@@ -106,7 +106,7 @@ function GameweekBuilder({ sprintId, sprintWeek, sprintStart, sprintEnd, onSaved
         events,
       })
       if (publish) {
-        await publishGameweek({ gameweek_id: res.data.gameweek_id })
+        await publishGameweek(res.data.gameweek_id)
       }
       onSaved()
     } catch (e) {
@@ -408,7 +408,7 @@ export default function SprintDetailPage() {
 
   const handlePublish = async (gwId) => {
     try {
-      await publishGameweek({ gameweek_id: gwId })
+      await publishGameweek(gwId)
       setActionMsg('Gameweek published!')
       load()
     } catch (e) {
