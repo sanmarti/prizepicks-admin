@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listDivisions, createDivision, updateDivision, getDivisionUsers } from '../../api/divisions'
 
-// Each division gets an image that escalates in scale and epicness.
-// Academy = humble training ground; Champions = packed 100k-seat colosseum.
 const DIVISION_VISUALS = {
   1: {
-    // Academy — small green training pitch, modest, intimate
     image: 'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=900&q=80&auto=format&fit=crop',
     gradient: 'from-slate-900/95 via-slate-800/60 to-transparent',
     accent: '#6b7280',
@@ -14,16 +11,15 @@ const DIVISION_VISUALS = {
     label: 'Training Ground',
   },
   2: {
-    // Division 4 — small local stadium, lower league atmosphere
+    // Division 4 — orange
     image: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=900&q=80&auto=format&fit=crop',
-    gradient: 'from-emerald-950/95 via-emerald-900/55 to-transparent',
-    accent: '#10b981',
-    accentBg: 'rgba(16,185,129,0.12)',
-    accentBorder: 'rgba(16,185,129,0.30)',
+    gradient: 'from-orange-950/95 via-orange-900/55 to-transparent',
+    accent: '#f97316',
+    accentBg: 'rgba(249,115,22,0.12)',
+    accentBorder: 'rgba(249,115,22,0.30)',
     label: 'Local Stadium',
   },
   3: {
-    // Division 3 — professional mid-tier ground, decent crowd
     image: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=900&q=80&auto=format&fit=crop',
     gradient: 'from-blue-950/95 via-blue-900/55 to-transparent',
     accent: '#3b82f6',
@@ -32,16 +28,15 @@ const DIVISION_VISUALS = {
     label: 'Pro Stadium',
   },
   4: {
-    // Division 2 — large professional arena, serious atmosphere
+    // Division 2 — green
     image: 'https://images.unsplash.com/photo-1540747913346-19212a4b23b4?w=900&q=80&auto=format&fit=crop',
-    gradient: 'from-violet-950/95 via-violet-900/55 to-transparent',
-    accent: '#8b5cf6',
-    accentBg: 'rgba(139,92,246,0.12)',
-    accentBorder: 'rgba(139,92,246,0.30)',
+    gradient: 'from-green-950/95 via-green-900/55 to-transparent',
+    accent: '#22c55e',
+    accentBg: 'rgba(34,197,94,0.12)',
+    accentBorder: 'rgba(34,197,94,0.30)',
     label: 'Elite Arena',
   },
   5: {
-    // Division 1 — iconic elite stadium, packed, atmospheric
     image: 'https://images.unsplash.com/photo-1522778526097-ce0a22ceb253?w=900&q=80&auto=format&fit=crop',
     gradient: 'from-amber-950/95 via-amber-900/55 to-transparent',
     accent: '#f59e0b',
@@ -50,12 +45,12 @@ const DIVISION_VISUALS = {
     label: 'Premier Ground',
   },
   6: {
-    // Champions / Legend — massive, mythical, 100k stadium, night, floodlights
+    // Champions / Legend — purple
     image: 'https://images.unsplash.com/photo-1553778263-73a83bab9b0c?w=900&q=80&auto=format&fit=crop',
-    gradient: 'from-red-950/95 via-rose-900/55 to-transparent',
-    accent: '#ef4444',
-    accentBg: 'rgba(239,68,68,0.12)',
-    accentBorder: 'rgba(239,68,68,0.30)',
+    gradient: 'from-purple-950/95 via-purple-900/55 to-transparent',
+    accent: '#a855f7',
+    accentBg: 'rgba(168,85,247,0.12)',
+    accentBorder: 'rgba(168,85,247,0.30)',
     label: 'Hall of Legends',
   },
 }
@@ -66,11 +61,18 @@ function getVisuals(div) {
 
 const DEFAULT_FORM = {
   name: '', display_order: '', icon: '🎓',
+  badge_url: '',
   color_primary: '#6366f1', color_secondary: '#4f46e5',
   is_initial: false, is_highest: false, allows_relegation: true,
   relegation_max_points: '', retention_min_points: '0',
   retention_max_points: '', promotion_min_points: '',
   is_active: true,
+}
+
+const toInt = (v) => {
+  if (v === '' || v == null) return null
+  const n = parseInt(v)
+  return isNaN(n) ? null : n
 }
 
 // ── Division Card ─────────────────────────────────────────────────────────────
@@ -85,7 +87,7 @@ function DivisionCard({ div, onEdit, onViewUsers }) {
       <div className="relative h-44 overflow-hidden">
         {!imgError ? (
           <img
-            src={v.image}
+            src={div.badge_url || v.image}
             alt={div.name}
             onError={() => setImgError(true)}
             className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700"
@@ -303,11 +305,12 @@ function DivisionForm({ initial, onSave, onCancel }) {
     try {
       const payload = {
         ...form,
+        badge_url: form.badge_url || null,
         display_order: parseInt(form.display_order),
-        relegation_max_points: form.relegation_max_points === '' ? null : parseInt(form.relegation_max_points),
-        retention_min_points:  parseInt(form.retention_min_points || 0),
-        retention_max_points:  parseInt(form.retention_max_points),
-        promotion_min_points:  parseInt(form.promotion_min_points),
+        relegation_max_points: toInt(form.relegation_max_points),
+        retention_min_points:  toInt(form.retention_min_points) ?? 0,
+        retention_max_points:  toInt(form.retention_max_points),
+        promotion_min_points:  form.is_highest ? null : toInt(form.promotion_min_points),
       }
       if (initial?.id) await updateDivision(initial.id, payload)
       else             await createDivision(payload)
@@ -350,6 +353,18 @@ function DivisionForm({ initial, onSave, onCancel }) {
         </div>
       </div>
 
+      <div>
+        <label className={lbl}>Custom image URL (optional — overrides default stadium photo)</label>
+        <input className={inp} value={form.badge_url || ''} onChange={e => set('badge_url', e.target.value)}
+          placeholder="https://images.unsplash.com/photo-…?w=900&q=80&auto=format&fit=crop" />
+        {form.badge_url && (
+          <div className="mt-2 relative h-20 rounded-xl overflow-hidden border border-white/10">
+            <img src={form.badge_url} alt="preview" className="w-full h-full object-cover"
+              onError={e => { e.target.style.display='none' }} />
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className={lbl}>Relegation max LP</label>
@@ -364,8 +379,9 @@ function DivisionForm({ initial, onSave, onCancel }) {
           <input className={inp} type="number" value={form.retention_max_points} onChange={e => set('retention_max_points', e.target.value)} placeholder="16" required />
         </div>
         <div>
-          <label className={lbl}>Promotion min LP</label>
-          <input className={inp} type="number" value={form.promotion_min_points} onChange={e => set('promotion_min_points', e.target.value)} placeholder="17" required />
+          <label className={lbl}>Promotion min LP {form.is_highest && <span className="text-gray-600">(n/a — top division)</span>}</label>
+          <input className={inp} type="number" value={form.promotion_min_points} onChange={e => set('promotion_min_points', e.target.value)}
+            placeholder={form.is_highest ? 'n/a' : '17'} disabled={form.is_highest} required={!form.is_highest} />
         </div>
       </div>
 
