@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router'
 import {
   getSprint, updateSprint, activateSprint, settleSprint,
   addSprintGameweek, removeSprintGameweek, getRankings, getAvailableFixtures,
+  importFixturesByRange,
 } from '../../api/sprints'
 import { publishGameweek } from '../../api/gameweeks'
 
@@ -93,7 +94,7 @@ function FixtureRow({ fix, selected, disabled, onToggle }) {
 }
 
 // ── Gameweek section (one per week) ──────────────────────────────────────────
-function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved }) {
+function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved, onFixturesImported }) {
   const { weekStart, weekEnd, defaultLock } = getWeekBounds(sprintStart, week)
 
   const initEvents = useCallback(() => {
@@ -111,10 +112,29 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const [events, setEvents]       = useState(initEvents)
   const [lockTime, setLockTime]   = useState(existingGw?.lock_time?.slice(0, 16) || defaultLock)
   const [saving, setSaving]       = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState('')
   const [err, setErr]             = useState('')
   const [msg, setMsg]             = useState('')
   const [expanded, setExpanded]   = useState(true)
   const [leagueLimit, setLeagueLimit] = useState({})  // league → show all
+
+  const handleImport = async () => {
+    setImporting(true); setImportMsg('')
+    try {
+      const res = await importFixturesByRange({
+        date_from: weekStart.toISOString().slice(0, 10),
+        date_to:   new Date(weekEnd.getTime() - 1).toISOString().slice(0, 10),
+      })
+      setImportMsg(res.data.message || `Imported ${res.data.imported} fixtures`)
+      onFixturesImported()
+    } catch (e) {
+      setImportMsg(e.response?.data?.message || 'Import failed — API may have no fixtures for this period yet')
+    } finally {
+      setImporting(false)
+      setTimeout(() => setImportMsg(''), 5000)
+    }
+  }
 
   // Re-init when existingGw changes (after save/reload)
   useEffect(() => { setEvents(initEvents()) }, [initEvents])
@@ -315,13 +335,33 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                       <span className="text-gray-500 text-sm font-normal ml-2">({weekFixtures.length} matches)</span>
                     )}
                   </p>
+                  <button
+                    onClick={handleImport}
+                    disabled={importing || loadingFixtures}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-40"
+                    title="Fetch from API-Football and cache in DB (uses 1 API call)"
+                  >
+                    {importing
+                      ? <><span className="w-3 h-3 border border-gray-500 border-t-white rounded-full animate-spin" />Importing…</>
+                      : <>↓ Import from API</>
+                    }
+                  </button>
                 </div>
+
+                {importMsg && (
+                  <p className={`text-xs mb-3 ${importMsg.includes('failed') || importMsg.includes('no fixtures') ? 'text-yellow-400' : 'text-indigo-400'}`}>
+                    {importMsg}
+                  </p>
+                )}
 
                 {!loadingFixtures && weekFixtures.length === 0 && (
                   <div className="bg-white/3 border border-dashed border-white/10 rounded-2xl p-8 text-center">
-                    <p className="text-gray-500 text-sm">No fixtures found in DB for this week</p>
+                    <p className="text-gray-500 text-sm">No fixtures cached for this week</p>
+                    <p className="text-gray-700 text-xs mt-2">
+                      Click "Import from API" above to fetch from API-Football and cache results in the DB.
+                    </p>
                     <p className="text-gray-700 text-xs mt-1">
-                      {weekLabel} — the API will be queried automatically when fixtures become available
+                      Note: league schedules for {weekStart.getFullYear()}/{weekStart.getFullYear()+1} may not be published yet.
                     </p>
                   </div>
                 )}
@@ -570,8 +610,7 @@ export default function SprintDetailPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load fixtures for the full sprint period when sprint data arrives
-  useEffect(() => {
+  const loadFixtures = useCallback(() => {
     if (!sprint?.start_date || !sprint?.end_date) return
     setLoadingFix(true)
     getAvailableFixtures({
@@ -582,6 +621,9 @@ export default function SprintDetailPage() {
       .catch(() => {})
       .finally(() => setLoadingFix(false))
   }, [sprint?.id, sprint?.start_date, sprint?.end_date])
+
+  // Load fixtures for the full sprint period when sprint data arrives
+  useEffect(() => { loadFixtures() }, [loadFixtures])
 
   // Build a map of week → gameweek record
   const gwByWeek = useMemo(() => {
@@ -769,6 +811,7 @@ export default function SprintDetailPage() {
               weekFixtures={fixturesByWeek[week] || []}
               loadingFixtures={loadingFix}
               onSaved={load}
+              onFixturesImported={loadFixtures}
             />
           ))}
 

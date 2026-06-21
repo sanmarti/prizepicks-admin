@@ -10,3 +10,4 @@ export const addSprintGameweek   = (id, data)    => client.post(`/admin/sprints/
 export const removeSprintGameweek= (id, gwId)    => client.delete(`/admin/sprints/${id}/gameweeks/${gwId}`)
 export const getRankings         = (params)      => client.get('/admin/rankings', { params })
 export const getAvailableFixtures= (params)      => client.get('/admin/fixtures/available', { params })
+export const importFixturesByRange=(data)         => client.post('/admin/fixtures/import-range', data)

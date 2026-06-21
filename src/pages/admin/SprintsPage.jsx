@@ -154,23 +154,38 @@ function GenerateYearButton({ year, existingSprints, onGenerated }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SprintsPage() {
-  const [sprints, setSprints]       = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [activeYear, setActiveYear] = useState(2026)
-  const [monthFilter, setMonthFilter] = useState(null)  // null = all
+  const [sprints, setSprints]         = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [autoGenerating, setAutoGenerating] = useState(false)
+  const [activeYear, setActiveYear]   = useState(2026)
+  const [monthFilter, setMonthFilter] = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [showCreate, setShowCreate] = useState(false)
+  const [showCreate, setShowCreate]   = useState(false)
   const navigate = useNavigate()
 
   const load = useCallback(() => {
     setLoading(true)
-    listSprints()
-      .then(r => setSprints(r.data))
-      .catch(() => {})
+    return listSprints()
+      .then(r => r.data)
+      .catch(() => [])
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load().then(async (data) => {
+      const toCreate = [2026, 2027].flatMap(year =>
+        buildYearSprints(year).filter(s => !data.some(e => e.name === s.name))
+      )
+      if (toCreate.length === 0) { setSprints(data); return }
+      setAutoGenerating(true)
+      setSprints(data)
+      for (const sprint of toCreate) {
+        try { await createSprint(sprint) } catch { /* skip duplicates */ }
+      }
+      setAutoGenerating(false)
+      load().then(setSprints)
+    })
+  }, [load])
 
   // Filter to the selected year
   const yearSprints = sprints.filter(s => getYear(s.name) === activeYear)
@@ -296,13 +311,12 @@ export default function SprintsPage() {
         ))}
       </div>
 
-      {/* Generate missing sprints for this year */}
-      {!loading && (
-        <GenerateYearButton
-          year={activeYear}
-          existingSprints={yearSprints}
-          onGenerated={load}
-        />
+      {/* Auto-generating banner */}
+      {autoGenerating && (
+        <div className="flex items-center gap-3 bg-indigo-900/15 border border-indigo-500/20 rounded-2xl px-5 py-3">
+          <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+          <p className="text-indigo-300 text-sm">Creating sprint schedule for 2026–2027…</p>
+        </div>
       )}
 
       {/* Loading skeleton */}
