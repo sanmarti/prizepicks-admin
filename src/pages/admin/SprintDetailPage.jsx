@@ -26,14 +26,44 @@ const GW_STATUS = {
   FINISHED:  { color: 'text-purple-400', bg: 'bg-purple-900/30' },
 }
 
-const EVENT_TYPES = ['MATCH_RESULT', 'GOALS', 'CLEAN_SHEET', 'PLAYER_SCORE', 'BTTS', 'CORNER_OVER']
-const DEFAULT_OPTIONS = {
-  MATCH_RESULT: ['Home Win', 'Draw', 'Away Win'],
-  GOALS:        ['Over 2.5', 'Under 2.5'],
-  CLEAN_SHEET:  ['Yes', 'No'],
-  PLAYER_SCORE: ['Scores', 'Does not score'],
-  BTTS:         ['Yes', 'No'],
-  CORNER_OVER:  ['Over 9.5', 'Under 9.5'],
+const EVENT_TYPES = ['MATCH_RESULT', 'GOALS', 'BTTS', 'CLEAN_SHEET', 'CORNER_OVER', 'PLAYER_SCORE']
+const EVENT_TYPE_LABELS = {
+  MATCH_RESULT: 'Match Result', GOALS: 'Goals O/U', BTTS: 'Both Teams Score',
+  CLEAN_SHEET: 'Clean Sheet', CORNER_OVER: 'Corners O/U', PLAYER_SCORE: 'Player Scores',
+}
+const GOALS_THRESHOLDS    = ['0.5', '1.5', '2.5', '3.5', '4.5']
+const CORNER_THRESHOLDS   = ['7.5', '8.5', '9.5', '10.5', '11.5']
+
+function buildOptions(type, homeTeam, awayTeam, threshold) {
+  const ec = 5
+  switch (type) {
+    case 'MATCH_RESULT': return [
+      { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: ec },
+      { label: 'Draw',            result_key: 'DRAW',       energy_cost: ec },
+      { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: ec },
+    ]
+    case 'GOALS': { const t = threshold || '2.5'; return [
+      { label: `Over ${t} Goals`,  result_key: `OVER_${t}`,  energy_cost: ec },
+      { label: `Under ${t} Goals`, result_key: `UNDER_${t}`, energy_cost: ec },
+    ]}
+    case 'BTTS': return [
+      { label: 'Both Teams Score',     result_key: 'BTTS_YES', energy_cost: ec },
+      { label: 'Not Both Teams Score', result_key: 'BTTS_NO',  energy_cost: ec },
+    ]
+    case 'CLEAN_SHEET': return [
+      { label: `${homeTeam} Clean Sheet`, result_key: 'HOME_CLEAN_SHEET', energy_cost: ec },
+      { label: `${awayTeam} Clean Sheet`, result_key: 'AWAY_CLEAN_SHEET', energy_cost: ec },
+    ]
+    case 'CORNER_OVER': { const t = threshold || '9.5'; return [
+      { label: `Over ${t} Corners`,  result_key: `CORNER_OVER_${t}`,   energy_cost: ec },
+      { label: `Under ${t} Corners`, result_key: `CORNER_UNDER_${t}`,  energy_cost: ec },
+    ]}
+    case 'PLAYER_SCORE': return [
+      { label: 'Scores',         result_key: 'PLAYER_SCORES',   energy_cost: ec },
+      { label: 'Does not score', result_key: 'PLAYER_NO_SCORE', energy_cost: ec },
+    ]
+    default: return []
+  }
 }
 
 function getWeekBounds(sprintStart, week) {
@@ -100,14 +130,30 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
 
   const initEvents = useCallback(() => {
     if (!existingGw?.events?.length) return []
-    return existingGw.events.map(ev => ({
-      fixture_id:   ev.fixture_id,
-      fixture_name: ev.fixture_name,
-      match_time:   ev.match_time,
-      competition:  ev.competition,
-      event_type:   ev.event_type,
-      options:      (ev.options || []).map(o => ({ label: o.label, energy_cost: o.energy_cost })),
-    }))
+    return existingGw.events.map(ev => {
+      // Derive home/away team from fixture_name "X vs Y" for re-editing
+      const [homeTeam = '', awayTeam = ''] = (ev.fixture_name || '').split(' vs ')
+      // Derive threshold from first option's result_key (e.g. OVER_2.5 → 2.5)
+      const firstKey = ev.options?.[0]?.result_key || ''
+      const thresholdMatch = firstKey.match(/_([\d.]+)$/)
+      const threshold = thresholdMatch ? thresholdMatch[1] : '2.5'
+      return {
+        fixture_id:   ev.fixture_id,
+        fixture_name: ev.fixture_name,
+        home_team:    homeTeam.trim(),
+        away_team:    awayTeam.trim(),
+        match_time:   ev.match_time,
+        competition:  ev.competition,
+        event_type:   ev.event_type,
+        player_name:  ev.player_name || '',
+        threshold,
+        options:      (ev.options || []).map(o => ({
+          label:       o.label,
+          result_key:  o.result_key,
+          energy_cost: o.energy_cost,
+        })),
+      }
+    })
   }, [existingGw])
 
   const [events, setEvents]       = useState(initEvents)
@@ -163,14 +209,13 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
       setEvents(prev => [...prev, {
         fixture_id:   String(fix.id),
         fixture_name: `${fix.home_team} vs ${fix.away_team}`,
+        home_team:    fix.home_team,
+        away_team:    fix.away_team,
         match_time:   fix.date,
         competition:  fix.competition_name || '',
         event_type:   'MATCH_RESULT',
-        options: [
-          { label: `${fix.home_team} Win`, energy_cost: 5 },
-          { label: 'Draw',                  energy_cost: 5 },
-          { label: `${fix.away_team} Win`,  energy_cost: 5 },
-        ],
+        threshold:    '2.5',
+        options:      buildOptions('MATCH_RESULT', fix.home_team, fix.away_team),
       }])
     }
   }
@@ -178,15 +223,25 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const updateEventType = (idx, type) => {
     setEvents(prev => prev.map((ev, i) => {
       if (i !== idx) return ev
-      const labels = DEFAULT_OPTIONS[type] || ['Option 1', 'Option 2']
-      return { ...ev, event_type: type, options: labels.map(l => ({ label: l, energy_cost: 5 })) }
+      return { ...ev, event_type: type, options: buildOptions(type, ev.home_team, ev.away_team, ev.threshold) }
     }))
   }
 
-  const updateOptionLabel = (evIdx, optIdx, label) => {
+  const updateThreshold = (idx, threshold) => {
+    setEvents(prev => prev.map((ev, i) => {
+      if (i !== idx) return ev
+      return { ...ev, threshold, options: buildOptions(ev.event_type, ev.home_team, ev.away_team, threshold) }
+    }))
+  }
+
+  const updatePlayerName = (idx, player_name) => {
+    setEvents(prev => prev.map((ev, i) => i !== idx ? ev : { ...ev, player_name }))
+  }
+
+  const updateEnergyCost = (evIdx, optIdx, energy_cost) => {
     setEvents(prev => prev.map((ev, i) => {
       if (i !== evIdx) return ev
-      return { ...ev, options: ev.options.map((o, j) => j === optIdx ? { ...o, label } : o) }
+      return { ...ev, options: ev.options.map((o, j) => j === optIdx ? { ...o, energy_cost: Number(energy_cost) } : o) }
     }))
   }
 
@@ -407,11 +462,13 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
               {events.length > 0 && (
                 <div>
                   <p className="text-white font-semibold mb-3">Selected events ({events.length}/15)</p>
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                     {events.map((ev, evIdx) => (
                       <div key={ev.fixture_id || evIdx}
-                        className="bg-white/3 border border-white/8 rounded-2xl p-4">
-                        <div className="flex items-start justify-between mb-3">
+                        className="bg-white/3 border border-white/8 rounded-2xl p-4 space-y-3">
+
+                        {/* Header */}
+                        <div className="flex items-start justify-between">
                           <div>
                             <p className="text-white text-sm font-semibold">{ev.fixture_name}</p>
                             {ev.match_time && (
@@ -424,28 +481,79 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                           <button
                             onClick={() => removeEvent(evIdx)}
                             className="text-gray-600 hover:text-red-400 text-sm ml-3 flex-shrink-0 transition-colors"
-                          >
-                            ✕
-                          </button>
+                          >✕</button>
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <select
-                            value={ev.event_type}
-                            onChange={e => updateEventType(evIdx, e.target.value)}
-                            className="bg-white/8 border border-white/10 rounded-lg px-2 py-1.5 text-gray-300 text-xs focus:outline-none focus:border-indigo-500"
-                          >
-                            {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
-                          <div className="flex gap-2 flex-wrap">
-                            {ev.options.map((opt, optIdx) => (
-                              <input
-                                key={optIdx}
-                                value={opt.label}
-                                onChange={e => updateOptionLabel(evIdx, optIdx, e.target.value)}
-                                className="bg-white/8 border border-white/10 rounded-lg px-2 py-1.5 text-gray-200 text-xs w-32 focus:outline-none focus:border-indigo-500"
-                              />
-                            ))}
+
+                        {/* Event type selector */}
+                        <div className="flex gap-1.5 flex-wrap">
+                          {EVENT_TYPES.map(t => (
+                            <button
+                              key={t}
+                              onClick={() => updateEventType(evIdx, t)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                                ev.event_type === t
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-white/6 text-gray-500 hover:text-gray-300 hover:bg-white/10'
+                              }`}
+                            >
+                              {EVENT_TYPE_LABELS[t]}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Threshold selector for GOALS / CORNER_OVER */}
+                        {(ev.event_type === 'GOALS' || ev.event_type === 'CORNER_OVER') && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-600 text-xs">Threshold:</span>
+                            <div className="flex gap-1">
+                              {(ev.event_type === 'GOALS' ? GOALS_THRESHOLDS : CORNER_THRESHOLDS).map(t => (
+                                <button
+                                  key={t}
+                                  onClick={() => updateThreshold(evIdx, t)}
+                                  className={`px-2 py-0.5 rounded text-xs font-mono font-bold transition-colors ${
+                                    ev.threshold === t
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-white/6 text-gray-500 hover:text-gray-300'
+                                  }`}
+                                >
+                                  {t}
+                                </button>
+                              ))}
+                            </div>
                           </div>
+                        )}
+
+                        {/* Player name for PLAYER_SCORE */}
+                        {ev.event_type === 'PLAYER_SCORE' && (
+                          <input
+                            placeholder="Player name (e.g. Mbappé)"
+                            value={ev.player_name || ''}
+                            onChange={e => updatePlayerName(evIdx, e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500 placeholder-gray-700"
+                          />
+                        )}
+
+                        {/* Options — labels auto-generated, only energy cost editable */}
+                        <div className="grid grid-cols-2 gap-2">
+                          {ev.options.map((opt, optIdx) => (
+                            <div key={optIdx}
+                              className="flex items-center justify-between bg-white/4 border border-white/8 rounded-xl px-3 py-2 gap-2">
+                              <div className="min-w-0">
+                                <p className="text-gray-200 text-xs font-medium truncate">{opt.label}</p>
+                                <p className="text-gray-700 text-[10px] font-mono">{opt.result_key}</p>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <span className="text-gray-600 text-[10px]">⚡</span>
+                                <input
+                                  type="number"
+                                  min="1" max="9"
+                                  value={opt.energy_cost}
+                                  onChange={e => updateEnergyCost(evIdx, optIdx, e.target.value)}
+                                  className="w-8 bg-white/8 border border-white/10 rounded text-center text-white text-xs font-bold focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ))}
