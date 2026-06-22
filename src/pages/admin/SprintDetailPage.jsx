@@ -42,24 +42,24 @@ function buildOptions(type, homeTeam, awayTeam, threshold) {
       { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: 4 },
     ]
     case 'GOALS': { const t = threshold || '2.5'; return [
-      { label: `Over ${t} Goals`,  result_key: `OVER_${t}`,  energy_cost: ec },
-      { label: `Under ${t} Goals`, result_key: `UNDER_${t}`, energy_cost: ec },
+      { label: `Over ${t} Goals`,  result_key: `OVER_${t}`,  energy_cost: 5 },
+      { label: `Under ${t} Goals`, result_key: `UNDER_${t}`, energy_cost: 5 },
     ]}
     case 'BTTS': return [
-      { label: 'Both Teams Score',     result_key: 'BTTS_YES', energy_cost: ec },
-      { label: 'Not Both Teams Score', result_key: 'BTTS_NO',  energy_cost: ec },
+      { label: 'Both Teams Score',     result_key: 'BTTS_YES', energy_cost: 5 },
+      { label: 'Not Both Teams Score', result_key: 'BTTS_NO',  energy_cost: 5 },
     ]
     case 'CLEAN_SHEET': return [
-      { label: `${homeTeam} Clean Sheet`, result_key: 'HOME_CLEAN_SHEET', energy_cost: ec },
-      { label: `${awayTeam} Clean Sheet`, result_key: 'AWAY_CLEAN_SHEET', energy_cost: ec },
+      { label: `${homeTeam} Clean Sheet`, result_key: 'HOME_CLEAN_SHEET', energy_cost: 5 },
+      { label: `${awayTeam} Clean Sheet`, result_key: 'AWAY_CLEAN_SHEET', energy_cost: 5 },
     ]
     case 'CORNER_OVER': { const t = threshold || '9.5'; return [
-      { label: `Over ${t} Corners`,  result_key: `CORNER_OVER_${t}`,   energy_cost: ec },
-      { label: `Under ${t} Corners`, result_key: `CORNER_UNDER_${t}`,  energy_cost: ec },
+      { label: `Over ${t} Corners`,  result_key: `CORNER_OVER_${t}`,  energy_cost: 5 },
+      { label: `Under ${t} Corners`, result_key: `CORNER_UNDER_${t}`, energy_cost: 5 },
     ]}
     case 'PLAYER_SCORE': return [
-      { label: 'Scores',         result_key: 'PLAYER_SCORES',   energy_cost: ec },
-      { label: 'Does not score', result_key: 'PLAYER_NO_SCORE', energy_cost: ec },
+      { label: 'Scores',         result_key: 'PLAYER_SCORES',   energy_cost: 5 },
+      { label: 'Does not score', result_key: 'PLAYER_NO_SCORE', energy_cost: 5 },
     ]
     default: return []
   }
@@ -123,7 +123,7 @@ function FixtureRow({ fix, selected, disabled, onToggle }) {
   )
 }
 
-// ── Gameweek section (one per week) ──────────────────────────────────────────
+// ── Gameweek section (one per week, always expanded) ─────────────────────────
 function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved, onFixturesImported }) {
   const { weekStart, weekEnd, defaultLock } = getWeekBounds(sprintStart, week)
 
@@ -162,7 +162,6 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const [importMsg, setImportMsg] = useState('')
   const [err, setErr]             = useState('')
   const [msg, setMsg]             = useState('')
-  const [expanded, setExpanded]   = useState(true)
 
   const handleImport = async () => {
     setImporting(true); setImportMsg('')
@@ -293,54 +292,30 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const inp = "w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500"
 
   return (
-    <div className="bg-[#0d1117] border border-white/8 rounded-3xl overflow-hidden">
-      {/* Section header — always visible */}
-      <div
-        className="flex items-center justify-between px-6 py-5 cursor-pointer hover:bg-white/2 transition-colors select-none"
-        onClick={() => setExpanded(e => !e)}
-      >
-        <div className="flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl flex-shrink-0 ${
-            gwStatus === 'PUBLISHED' ? 'bg-blue-600/30 border border-blue-500/40 text-blue-300' :
-            gwStatus === 'FINISHED'  ? 'bg-purple-600/30 border border-purple-500/40 text-purple-300' :
-            gwStatus === 'LOCKED'    ? 'bg-yellow-600/30 border border-yellow-500/40 text-yellow-300' :
-            gwStatus === 'DRAFT'     ? 'bg-white/10 border border-white/20 text-white' :
-            'bg-indigo-600/20 border border-indigo-500/30 text-indigo-400'
-          }`}>
-            {week}
+    <div className="space-y-6">
+      {/* Status + progress header */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-2">
+            <p className="text-gray-400 text-sm">{weekLabel}</p>
+            {gwStatusInfo
+              ? <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium ${gwStatusInfo.bg} ${gwStatusInfo.color}`}>{gwStatus}</span>
+              : <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/5 text-gray-600">EMPTY — not configured yet</span>
+            }
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-white text-lg font-bold">Week {week}</p>
-              {gwStatusInfo && (
-                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${gwStatusInfo.bg} ${gwStatusInfo.color}`}>
-                  {gwStatus}
-                </span>
-              )}
-              {!gwStatus && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-gray-600">EMPTY</span>
-              )}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-white/5 rounded-full h-2">
+              <div className={`h-full rounded-full transition-all ${events.length === 15 ? 'bg-green-500' : 'bg-indigo-500'}`}
+                style={{ width: `${pct}%` }} />
             </div>
-            <p className="text-gray-500 text-sm mt-0.5">{weekLabel}</p>
+            <span className={`text-sm font-bold flex-shrink-0 ${events.length === 15 ? 'text-green-400' : 'text-indigo-400'}`}>
+              {events.length}/15 {events.length === 15 && '✓'}
+            </span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          {/* Mini progress */}
-          <div className="text-right hidden sm:block">
-            <p className="text-white text-sm font-bold">{events.length}/15</p>
-            <p className="text-gray-600 text-xs">events</p>
-          </div>
-          <div className="w-24 bg-white/5 rounded-full h-1.5 hidden sm:block">
-            <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <span className="text-gray-600 text-lg">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
 
-      {/* Expanded body */}
-      {expanded && (
-        <div className="border-t border-white/5 px-6 py-6 space-y-6">
+      <div className="space-y-6">
 
           {err && <div className="bg-red-900/20 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">{err}</div>}
           {msg && <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-xl px-4 py-3 text-indigo-300 text-sm">{msg}</div>}
@@ -663,7 +638,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
             </>
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -875,6 +850,7 @@ export default function SprintDetailPage() {
   const [allFixtures, setAllFixtures] = useState([])
   const [loadingFix, setLoadingFix]   = useState(false)
   const [activeTab, setActiveTab]   = useState('gameweeks')
+  const [activeGwWeek, setActiveGwWeek] = useState(1)
   const [actionMsg, setActionMsg]   = useState('')
   const [confirming, setConfirming] = useState(null)
 
@@ -1102,15 +1078,10 @@ export default function SprintDetailPage() {
         </div>
       </div>
 
-      {/* Gameweeks tab — 4 large sections */}
+      {/* Gameweeks tab — sub-tabs W1/W2/W3/W4 */}
       {activeTab === 'gameweeks' && (
-        <div className="space-y-4">
-          {loadingFix && (
-            <div className="flex items-center gap-2 text-gray-600 text-xs">
-              <div className="w-3 h-3 border border-gray-600 border-t-indigo-400 rounded-full animate-spin" />
-              Loading fixtures for this sprint period…
-            </div>
-          )}
+        <div className="space-y-6">
+          {/* Fixture load feedback */}
           {fixtureErr && (
             <div className="bg-red-900/15 border border-red-500/20 rounded-xl px-4 py-2 text-red-400 text-xs">
               Fixture load error: {fixtureErr}
@@ -1118,35 +1089,85 @@ export default function SprintDetailPage() {
           )}
           {!loadingFix && !fixtureErr && allFixtures.length === 0 && (
             <div className="bg-yellow-900/10 border border-yellow-500/20 rounded-xl px-4 py-2 text-yellow-600 text-xs">
-              No fixtures cached for this sprint period ({sprint.start_date?.slice(0,10)} → {sprint.end_date?.slice(0,10)}). Go to Competitions → Import a competition, then click "Sync fixtures" inside any week below.
+              No fixtures cached for this sprint period. Go to <strong className="text-yellow-500">Competitions</strong> → import a competition, then use "Sync fixtures" inside each week.
             </div>
           )}
-          {!loadingFix && allFixtures.length > 0 && (
-            <div className="text-xs text-gray-600 px-1">
-              {allFixtures.length} fixtures available across {sprint.gameweek_count || 4} weeks
+
+          {/* Week sub-tabs */}
+          <div className="flex gap-2">
+            {Array.from({ length: gwCount }, (_, i) => i + 1).map(w => {
+              const gw        = gwByWeek[w]
+              const evCount   = gw ? (gw.event_count ?? 0) : 0
+              const isActive  = w === activeGwWeek
+              const statusInfo = gw ? GW_STATUS[gw.status] : null
+              return (
+                <button
+                  key={w}
+                  onClick={() => setActiveGwWeek(w)}
+                  className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-2xl border transition-all ${
+                    isActive
+                      ? 'bg-indigo-600/20 border-indigo-500/40 text-white'
+                      : 'bg-[#0d1117] border-white/8 text-gray-500 hover:text-gray-300 hover:border-white/15'
+                  }`}
+                >
+                  <span className={`text-base font-black ${isActive ? 'text-white' : 'text-gray-400'}`}>W{w}</span>
+                  {gw ? (
+                    <>
+                      <span className={`text-[10px] font-bold ${evCount >= 15 ? 'text-green-400' : isActive ? 'text-indigo-300' : 'text-gray-600'}`}>
+                        {evCount}/15
+                      </span>
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${statusInfo?.bg} ${statusInfo?.color}`}>
+                        {gw.status}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-gray-700">EMPTY</span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Active week section */}
+          <div className="bg-[#0d1117] border border-white/8 rounded-3xl px-6 py-6">
+            <div className="flex items-center gap-3 mb-6 pb-5 border-b border-white/6">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg flex-shrink-0 ${
+                gwByWeek[activeGwWeek]?.status === 'PUBLISHED' ? 'bg-blue-600/30 border border-blue-500/40 text-blue-300' :
+                gwByWeek[activeGwWeek]?.status === 'FINISHED'  ? 'bg-purple-600/30 border border-purple-500/40 text-purple-300' :
+                gwByWeek[activeGwWeek]?.status === 'LOCKED'    ? 'bg-yellow-600/30 border border-yellow-500/40 text-yellow-300' :
+                gwByWeek[activeGwWeek]?.status === 'DRAFT'     ? 'bg-white/10 border border-white/20 text-white' :
+                'bg-indigo-600/20 border border-indigo-500/30 text-indigo-400'
+              }`}>
+                {activeGwWeek}
+              </div>
+              <div>
+                <h3 className="text-white font-bold text-base">Gameweek {activeGwWeek}</h3>
+                {loadingFix && <p className="text-gray-600 text-xs mt-0.5">Loading fixtures…</p>}
+                {!loadingFix && (fixturesByWeek[activeGwWeek] || []).length > 0 && (
+                  <p className="text-gray-500 text-xs mt-0.5">{(fixturesByWeek[activeGwWeek] || []).length} fixtures available this week</p>
+                )}
+              </div>
             </div>
-          )}
-          {Array.from({ length: gwCount }, (_, i) => i + 1).map(week => (
             <GameweekSection
-              key={week}
-              week={week}
+              key={activeGwWeek}
+              week={activeGwWeek}
               sprintId={id}
               sprintStart={sprint.start_date}
               sprintEnd={sprint.end_date}
-              existingGw={gwByWeek[week] || null}
-              weekFixtures={fixturesByWeek[week] || []}
+              existingGw={gwByWeek[activeGwWeek] || null}
+              weekFixtures={fixturesByWeek[activeGwWeek] || []}
               loadingFixtures={loadingFix}
               onSaved={load}
               onFixturesImported={loadFixtures}
             />
-          ))}
+          </div>
 
           <div className="bg-[#0d1117] border border-white/5 rounded-2xl p-4 text-xs text-gray-600 space-y-1">
             <p className="text-gray-400 font-medium">Workflow</p>
             <ol className="list-decimal list-inside space-y-0.5">
-              <li>Select 15 fixtures per week and publish each gameweek</li>
+              <li>Configure and publish each gameweek (W1 → W4) before activating</li>
               <li>Activate the sprint to open competition for all players</li>
-              <li>After all matches finish and scores are settled → Settle sprint to apply promotions/relegations</li>
+              <li>After all matches finish → Settle sprint to apply promotions/relegations</li>
             </ol>
           </div>
         </div>
