@@ -5,3 +5,6 @@ export const getFixtures = (leagueId, season, round) =>
 
 export const getOdds = (fixtureId) =>
   client.get('/admin/odds', { params: { fixture: fixtureId } })
+
+export const getFixtureDetails = (fixtureId) =>
+  client.get(`/admin/fixtures/${fixtureId}/details`)

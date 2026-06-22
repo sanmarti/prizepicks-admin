@@ -10,7 +10,7 @@ import ConfirmModal from '../../components/admin/ui/ConfirmModal'
 import ActionButton from '../../components/admin/ui/ActionButton'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
-const FILTERS = ['All', 'admin', 'user']
+const FILTERS = ['All', 'admin', 'user', 'fake_user']
 
 export default function UsersPage() {
   const { data: users, loading, refetch } = useApi(getUsers)
@@ -63,7 +63,10 @@ export default function UsersPage() {
             {u.email?.[0]?.toUpperCase()}
           </div>
           <div>
-            <p className="text-white text-sm font-medium">{u.display_name ?? '—'}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-white text-sm font-medium">{u.display_name ?? '—'}</p>
+              {u.role === 'fake_user' && <span className="text-[9px] bg-orange-900/40 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-full font-bold">TEST</span>}
+            </div>
             <p className="text-gray-500 text-xs">{u.email}</p>
           </div>
         </div>

@@ -7,7 +7,6 @@ const SECTIONS = [
     items: [
       { icon: '📊', label: 'Dashboard',    path: '/admin/dashboard' },
       { icon: '👥', label: 'Users',        path: '/admin/users' },
-      { icon: '🏆', label: 'Leagues',      path: '/admin/leagues' },
       { icon: '🌍', label: 'Competitions', path: '/admin/competitions' },
     ],
   },
@@ -21,8 +20,7 @@ const SECTIONS = [
   {
     label: 'OPERATIONS',
     items: [
-      { icon: '🎯', label: 'Scoring',   path: '/admin/scoring' },
-      { icon: '💰', label: 'Payments',  path: '/admin/payments' },
+      { icon: '⚡', label: 'Energy Packs', path: '/admin/energy-packs' },
     ],
   },
 ]

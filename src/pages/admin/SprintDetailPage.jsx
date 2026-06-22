@@ -566,12 +566,18 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
 
                         {/* Player name for PLAYER_SCORE */}
                         {ev.event_type === 'PLAYER_SCORE' && (
-                          <input
-                            placeholder="Player name (e.g. Mbappé)"
-                            value={ev.player_name || ''}
-                            onChange={e => updatePlayerName(evIdx, e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500 placeholder-gray-700"
-                          />
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Player name</label>
+                            <input
+                              placeholder="e.g. Haaland, Mbappe, Vinicius Junior"
+                              value={ev.player_name || ''}
+                              onChange={e => updatePlayerName(evIdx, e.target.value)}
+                              className="w-full bg-indigo-950/30 border border-indigo-500/30 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-400 placeholder-gray-700 font-medium"
+                            />
+                            <p className="text-[10px] text-gray-600 leading-snug">
+                              Enter the player's last name or full name. Accents (é→e), abbreviations (K. Kane→Kane) and minor typos are matched automatically.
+                            </p>
+                          </div>
                         )}
 
                         {/* Options — labels auto-generated, only energy cost editable */}
@@ -639,7 +645,6 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
           )}
         </div>
       </div>
-    </div>
   )
 }
 

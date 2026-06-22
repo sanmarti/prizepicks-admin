@@ -9,10 +9,7 @@ import LoginPage          from "./pages/admin/LoginPage";
 import DashboardPage      from "./pages/admin/DashboardPage";
 import UsersPage          from "./pages/admin/UsersPage";
 import UserDetailPage     from "./pages/admin/UserDetailPage";
-import LeaguesPage        from "./pages/admin/LeaguesPage";
-import LeagueDetailPage   from "./pages/admin/LeagueDetailPage";
-import ScoringMonitorPage from "./pages/admin/ScoringMonitorPage";
-import PaymentsPage       from "./pages/admin/PaymentsPage";
+import EnergyPacksPage    from "./pages/admin/EnergyPacksPage";
 import CompetitionsPage      from "./pages/admin/CompetitionsPage";
 import CompetitionDetailPage from "./pages/admin/CompetitionDetailPage";
 import DivisionsPage         from "./pages/admin/DivisionsPage";
@@ -42,15 +39,12 @@ export default function App() {
           <Route path="/admin/dashboard"        element={<DashboardPage />} />
           <Route path="/admin/users"            element={<UsersPage />} />
           <Route path="/admin/users/:id"        element={<UserDetailPage />} />
-          <Route path="/admin/leagues"          element={<LeaguesPage />} />
-          <Route path="/admin/leagues/:id"      element={<LeagueDetailPage />} />
           <Route path="/admin/competitions"     element={<CompetitionsPage />} />
           <Route path="/admin/competitions/:id" element={<CompetitionDetailPage />} />
           <Route path="/admin/divisions"        element={<DivisionsPage />} />
           <Route path="/admin/sprints"          element={<SprintsPage />} />
           <Route path="/admin/sprints/:id"      element={<SprintDetailPage />} />
-          <Route path="/admin/scoring"          element={<ScoringMonitorPage />} />
-          <Route path="/admin/payments"         element={<PaymentsPage />} />
+          <Route path="/admin/energy-packs"     element={<EnergyPacksPage />} />
         </Route>
 
         <Route path="*" element={<NotFound />} />
