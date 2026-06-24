@@ -12,14 +12,27 @@ import ToastContainer from '../../components/admin/ui/ToastContainer'
 
 const FILTERS = ['All', 'admin', 'user', 'fake_user']
 
+function AccuracyBar({ pct }) {
+  if (pct === null || pct === undefined) return <span className="text-gray-600 text-xs">—</span>
+  const color = pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-gray-300">{pct}%</span>
+    </div>
+  )
+}
+
 export default function UsersPage() {
   const { data: users, loading, refetch } = useApi(getUsers)
   const { toasts, toast } = useToast()
   const navigate = useNavigate()
 
-  const [search, setSearch]           = useState('')
-  const [roleFilter, setRoleFilter]   = useState('All')
-  const [banTarget, setBanTarget]     = useState(null)
+  const [search, setSearch]             = useState('')
+  const [roleFilter, setRoleFilter]     = useState('All')
+  const [banTarget, setBanTarget]       = useState(null)
   const [energyTarget, setEnergyTarget] = useState(null)
   const [energyAmount, setEnergyAmount] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
@@ -56,7 +69,7 @@ export default function UsersPage() {
 
   const columns = [
     {
-      key: 'display_name', label: 'Name',
+      key: 'display_name', label: 'User',
       render: (u) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
@@ -73,6 +86,24 @@ export default function UsersPage() {
       )
     },
     { key: 'role', label: 'Role', render: (u) => <StatusBadge status={u.role}/> },
+    {
+      key: 'current_division', label: 'Division',
+      render: (u) => u.current_division
+        ? <span className="text-sm">{u.current_division.icon} <span className="text-gray-300">{u.current_division.name}</span></span>
+        : <span className="text-gray-600 text-xs">—</span>
+    },
+    {
+      key: 'sprints_played', label: 'Sprints',
+      render: (u) => <span className="text-gray-300 text-sm font-medium">{u.sprints_played ?? 0}</span>
+    },
+    {
+      key: 'matchweeks_played', label: 'Matchweeks',
+      render: (u) => <span className="text-gray-300 text-sm font-medium">{u.matchweeks_played ?? 0}</span>
+    },
+    {
+      key: 'accuracy_pct', label: 'Accuracy',
+      render: (u) => <AccuracyBar pct={u.accuracy_pct} />
+    },
     {
       key: 'energy_balance', label: 'Energy',
       render: (u) => <span className="text-yellow-400 font-medium">⚡ {u.energy_balance ?? 0}</span>
@@ -120,7 +151,6 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Ban confirm modal */}
       <ConfirmModal
         open={!!banTarget} danger
         title={`Ban ${banTarget?.email}?`}
@@ -130,7 +160,6 @@ export default function UsersPage() {
         onCancel={() => setBanTarget(null)}
       />
 
-      {/* Adjust energy modal */}
       {energyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-[#1c2333] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">

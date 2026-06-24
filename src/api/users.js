@@ -1,6 +1,7 @@
 import client from './client'
 
 export const getUsers        = ()             => client.get('/admin/users')
+export const getUserDetail   = (id)           => client.get(`/admin/users/${id}`)
 export const banUser         = (id)           => client.post(`/admin/users/${id}/ban`)
 export const updateUserRole  = (id, role)     => client.put(`/admin/users/${id}/role`, { role })
 export const getUserEnergy   = (id)           => client.get(`/admin/users/${id}/energy`)
