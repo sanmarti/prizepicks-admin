@@ -105,8 +105,13 @@ export default function UsersPage() {
       render: (u) => <AccuracyBar pct={u.accuracy_pct} />
     },
     {
-      key: 'energy_balance', label: 'Energy',
-      render: (u) => <span className="text-yellow-400 font-medium">⚡ {u.energy_balance ?? 0}</span>
+      key: 'extra_energy', label: 'Extra ⚡',
+      render: (u) => {
+        const extra = u.extra_energy ?? 0
+        return extra > 0
+          ? <span className="text-yellow-400 font-medium">+{extra}</span>
+          : <span className="text-gray-600 text-xs">—</span>
+      }
     },
     {
       key: 'created_at', label: 'Joined',

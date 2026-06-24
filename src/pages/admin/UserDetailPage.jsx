@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
-import { getUserDetail, adjustEnergy, banUser } from '../../api/users'
+import { getUserDetail, getUsers, adjustEnergy, banUser } from '../../api/users'
 import { useToast } from '../../hooks/useToast'
 import StatusBadge from '../../components/admin/ui/StatusBadge'
 import ActionButton from '../../components/admin/ui/ActionButton'
@@ -55,7 +55,28 @@ export default function UserDetailPage() {
   const [energyAmount, setEnergyAmount] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
-  const { data: user, loading, refetch } = useApi(() => getUserDetail(id), [id])
+  // Try the rich detail endpoint first; fall back to list entry if not yet deployed
+  const { data: detail, loading: loadingDetail } = useApi(() => getUserDetail(id).catch(() => null), [id])
+  const { data: userList, loading: loadingList }  = useApi(() => detail ? Promise.resolve(null) : getUsers(), [detail])
+
+  const loading = loadingDetail || loadingList
+  const refetch = () => window.location.reload()
+
+  // Merge: rich detail takes priority, otherwise synthesise from list entry
+  const listUser = userList?.find(u => u.id === id)
+  const user = detail ?? (listUser ? {
+    ...listUser,
+    stats: {
+      sprints_played:    listUser.sprints_played    ?? 0,
+      matchweeks_played: listUser.matchweeks_played ?? 0,
+      total_correct:     listUser.total_correct     ?? 0,
+      total_incorrect:   listUser.total_incorrect   ?? 0,
+      accuracy_pct:      listUser.accuracy_pct      ?? null,
+    },
+    current_division: listUser.current_division ?? null,
+    sprint_history:   [],
+    division_history: [],
+  } : null)
 
   async function handleAdjustEnergy() {
     if (!energyAmount) return
@@ -280,9 +301,15 @@ export default function UserDetailPage() {
           {/* ── ENERGY ───────────────────────────────────────── */}
           {tab === 'Energy' && (
             <div className="space-y-4">
-              <div className="flex items-center gap-3 mb-4">
-                <p className="text-yellow-400 text-3xl font-black">⚡ {user.energy_balance ?? 0}</p>
-                <p className="text-gray-500 text-sm">current balance</p>
+              <div className="flex items-center gap-6 mb-4 flex-wrap">
+                <div>
+                  <p className="text-yellow-400 text-3xl font-black">⚡ {user.energy_balance ?? 0}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">total balance (base 25 + purchased)</p>
+                </div>
+                <div>
+                  <p className="text-yellow-300 text-2xl font-black">+{user.extra_energy ?? 0}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">purchased extra</p>
+                </div>
               </div>
               <div className="flex gap-3 items-end">
                 <div className="flex-1">
