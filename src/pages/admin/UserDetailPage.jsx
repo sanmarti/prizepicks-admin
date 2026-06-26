@@ -68,27 +68,34 @@ function StatCard({ label, value, icon, gradient, glow, border, textColor, sub }
 }
 
 function AccuracyBar({ pct }) {
-  const tier = getAccuracyTier(pct)
-  if (pct === null || pct === undefined) return (
-    <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
-      <p className="text-2xl font-black text-gray-600">—</p>
-      <p className="text-gray-500 text-xs mt-0.5">Accuracy</p>
-    </div>
-  )
-  const color = tier ? tier.textColor : pct >= 60 ? 'text-green-400' : pct >= 40 ? 'text-yellow-400' : 'text-red-400'
-  const barClass = tier ? tier.barColor : pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+  const tier     = getAccuracyTier(pct)
+  const hasValue = pct !== null && pct !== undefined
+  const color    = !hasValue ? 'text-white/30'
+    : tier ? tier.textColor
+    : pct >= 60 ? 'text-green-400' : pct >= 40 ? 'text-yellow-400' : 'text-red-400'
+  const barClass = tier ? tier.barColor
+    : pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+
   return (
-    <div className={`relative rounded-xl overflow-hidden border p-4 ${tier ? `${tier.gradient} ${tier.border} ${tier.glow}` : 'bg-white/4 border-white/8'}`}>
+    <div className={`relative rounded-xl overflow-hidden border p-4 ${
+      tier ? `${tier.gradient} ${tier.border} ${tier.glow}` : 'bg-white/4 border-white/8'
+    }`}>
       {tier && <div className="absolute -top-3 -right-3 w-16 h-16 rounded-full blur-2xl opacity-30 bg-white pointer-events-none" />}
       <div className="relative">
-        <div className="flex items-center justify-between mb-1.5">
-          <p className={`text-2xl font-black ${color}`}>{pct}%</p>
+        <div className="flex items-start justify-between mb-2">
+          <span className="text-lg">🎯</span>
           {tier && <span className="text-lg">{tier.icon}</span>}
         </div>
+        <p className={`font-black text-2xl leading-none mb-1.5 ${color}`}>
+          {hasValue ? `${pct}%` : '—'}
+        </p>
         <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-1">
-          <div className={`h-full rounded-full ${barClass}`} style={{ width: `${pct}%` }} />
+          <div className={`h-full rounded-full transition-all ${barClass}`}
+            style={{ width: hasValue ? `${pct}%` : '0%' }} />
         </div>
-        <p className="text-white/40 text-[11px]">{tier ? tier.label : 'Global accuracy'}</p>
+        <p className="text-white/40 text-[11px] font-medium">
+          {tier ? tier.label : 'Global accuracy'}
+        </p>
       </div>
     </div>
   )
