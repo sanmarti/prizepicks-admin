@@ -7,7 +7,7 @@ import StatusBadge from '../../components/admin/ui/StatusBadge'
 import ActionButton from '../../components/admin/ui/ActionButton'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
-const TABS = ['Overview', 'Sprint History', 'Division History', 'Energy', 'Actions']
+const TABS = ['Overview', 'Sprint History', 'Matchweek History', 'Division History', 'Energy', 'Actions']
 
 const OUTCOME_CFG = {
   promoted:  { label: '⬆ Promoted',  color: 'text-green-400',  bg: 'bg-green-900/30 border-green-500/30' },
@@ -157,7 +157,7 @@ export default function UserDetailPage() {
   if (loading) return <div className="text-center py-20 text-gray-400">Loading…</div>
   if (!user)   return <div className="text-center py-20 text-gray-400">User not found</div>
 
-  const { stats, current_division, sprint_history, division_history } = user
+  const { stats, current_division, sprint_history, division_history, matchweek_history = [] } = user
 
   const lifetimeLP      = sprint_history.reduce((s, r) => s + (r.total_league_points ?? 0), 0)
   const totalPerfect    = sprint_history.reduce((s, r) => s + (r.perfect_weeks ?? 0), 0)
@@ -391,6 +391,67 @@ export default function UserDetailPage() {
                       <div><p className="text-green-400 font-bold text-base">{s.total_correct_picks}</p><p className="text-gray-600 text-[10px]">Correct</p></div>
                       <div><p className="text-red-400 font-bold text-base">{s.total_incorrect_picks}</p><p className="text-gray-600 text-[10px]">Wrong</p></div>
                       <div><p className="text-white font-bold text-base">{acc !== null ? `${acc}%` : '—'}</p><p className="text-gray-600 text-[10px]">Acc.</p></div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* ── MATCHWEEK HISTORY ────────────────────────────── */}
+          {tab === 'Matchweek History' && (
+            <div className="space-y-3">
+              <h3 className="text-white font-semibold text-sm mb-4">Matchweek history ({matchweek_history.length})</h3>
+              {matchweek_history.length === 0 && <p className="text-gray-500 text-sm">No matchweeks played yet.</p>}
+              {matchweek_history.map((mw) => {
+                const total = (mw.correct_picks ?? 0) + (mw.incorrect_picks ?? 0)
+                const acc = total > 0 ? Math.round((mw.correct_picks / total) * 100) : null
+                const isCompleted = mw.status === 'completed'
+                const statusCfg = {
+                  completed:  { label: 'Settled',   color: 'text-green-400',  bg: 'bg-green-900/20 border-green-500/25' },
+                  settling:   { label: 'Settling',  color: 'text-yellow-400', bg: 'bg-yellow-900/20 border-yellow-500/20' },
+                  locked:     { label: 'Locked',    color: 'text-blue-400',   bg: 'bg-blue-900/20 border-blue-500/20' },
+                  open:       { label: 'Open',      color: 'text-gray-400',   bg: 'bg-white/4 border-white/8' },
+                  void:       { label: 'Void',      color: 'text-gray-600',   bg: 'bg-white/2 border-white/5' },
+                }[mw.status] ?? { label: mw.status, color: 'text-gray-400', bg: 'bg-white/4 border-white/8' }
+
+                return (
+                  <div key={mw.id} className={`border rounded-xl p-4 ${statusCfg.bg}`}>
+                    <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                      <div>
+                        <p className="text-white font-semibold text-sm">
+                          {mw.sprint_name ?? '—'} · Week {mw.sprint_week ?? '?'}
+                          {mw.is_perfect_week && <span className="ml-2 text-yellow-400 text-xs font-bold">⭐ Perfect</span>}
+                        </p>
+                        <p className="text-gray-500 text-xs mt-0.5">
+                          {mw.lock_time ? new Date(mw.lock_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                        </p>
+                      </div>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${statusCfg.bg} ${statusCfg.color}`}>
+                        {statusCfg.label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2 text-center pt-3 border-t border-white/5">
+                      <div>
+                        <p className="text-indigo-400 font-bold text-base">{isCompleted ? (mw.league_points ?? 0) : '—'}</p>
+                        <p className="text-gray-600 text-[10px]">LP</p>
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-base">{mw.picks_submitted ?? 0}/6</p>
+                        <p className="text-gray-600 text-[10px]">Picks</p>
+                      </div>
+                      <div>
+                        <p className="text-green-400 font-bold text-base">{isCompleted ? (mw.correct_picks ?? 0) : '—'}</p>
+                        <p className="text-gray-600 text-[10px]">Correct</p>
+                      </div>
+                      <div>
+                        <p className="text-red-400 font-bold text-base">{isCompleted ? (mw.incorrect_picks ?? 0) : '—'}</p>
+                        <p className="text-gray-600 text-[10px]">Wrong</p>
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-base">{acc !== null ? `${acc}%` : '—'}</p>
+                        <p className="text-gray-600 text-[10px]">Acc.</p>
+                      </div>
                     </div>
                   </div>
                 )
