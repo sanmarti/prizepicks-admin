@@ -17,32 +17,79 @@ const OUTCOME_CFG = {
   pending:   { label: '🔴 Live',      color: 'text-yellow-400', bg: 'bg-yellow-900/20 border-yellow-500/20' },
 }
 
-function StatBox({ label, value, sub, color = 'text-white' }) {
+const TIERS = [
+  {
+    min: 90, label: 'Gold Predictor', icon: '🥇',
+    gradient: 'bg-gradient-to-br from-yellow-950 via-amber-900/40 to-[#111520]',
+    border: 'border-yellow-500/40',
+    glow: 'shadow-[0_0_30px_-6px_rgba(250,204,21,0.5)]',
+    textColor: 'text-yellow-400',
+    barColor: 'bg-gradient-to-r from-yellow-500 to-amber-300',
+    desc: '90%+ accuracy',
+  },
+  {
+    min: 80, label: 'Silver Predictor', icon: '🥈',
+    gradient: 'bg-gradient-to-br from-slate-800 via-slate-700/40 to-[#111520]',
+    border: 'border-slate-400/40',
+    glow: 'shadow-[0_0_30px_-6px_rgba(148,163,184,0.5)]',
+    textColor: 'text-slate-300',
+    barColor: 'bg-gradient-to-r from-slate-400 to-slate-200',
+    desc: '80%+ accuracy',
+  },
+  {
+    min: 70, label: 'Bronze Predictor', icon: '🥉',
+    gradient: 'bg-gradient-to-br from-orange-950 via-orange-900/40 to-[#111520]',
+    border: 'border-orange-500/40',
+    glow: 'shadow-[0_0_30px_-6px_rgba(249,115,22,0.5)]',
+    textColor: 'text-orange-400',
+    barColor: 'bg-gradient-to-r from-orange-500 to-amber-400',
+    desc: '70%+ accuracy',
+  },
+]
+function getAccuracyTier(pct) {
+  if (!pct || pct < 70) return null
+  return TIERS.find(t => pct >= t.min) ?? null
+}
+
+function StatCard({ label, value, icon, gradient, glow, border, textColor, sub }) {
   return (
-    <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
-      <p className={`text-2xl font-black ${color}`}>{value ?? '—'}</p>
-      <p className="text-gray-400 text-xs mt-0.5">{label}</p>
-      {sub && <p className="text-gray-600 text-[10px] mt-0.5">{sub}</p>}
+    <div className={`relative rounded-xl overflow-hidden border ${gradient} ${glow} ${border}`}>
+      <div className="absolute -top-3 -right-3 w-16 h-16 rounded-full blur-2xl opacity-30 bg-white pointer-events-none" />
+      <div className="relative p-4">
+        <div className="flex items-start justify-between mb-2">
+          <span className="text-lg">{icon}</span>
+        </div>
+        <p className={`font-black text-2xl leading-none mb-1 ${textColor}`}>{value ?? '—'}</p>
+        <p className="text-white/40 text-[11px] font-medium">{label}</p>
+        {sub && <p className="text-white/25 text-[10px] mt-0.5">{sub}</p>}
+      </div>
     </div>
   )
 }
 
-function AccuracyRing({ pct }) {
+function AccuracyBar({ pct }) {
+  const tier = getAccuracyTier(pct)
   if (pct === null || pct === undefined) return (
-    <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-center">
+    <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
       <p className="text-2xl font-black text-gray-600">—</p>
       <p className="text-gray-500 text-xs mt-0.5">Accuracy</p>
     </div>
   )
-  const color = pct >= 60 ? 'text-green-400' : pct >= 40 ? 'text-yellow-400' : 'text-red-400'
-  const barColor = pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+  const color = tier ? tier.textColor : pct >= 60 ? 'text-green-400' : pct >= 40 ? 'text-yellow-400' : 'text-red-400'
+  const barClass = tier ? tier.barColor : pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
   return (
-    <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
-      <p className={`text-2xl font-black ${color}`}>{pct}%</p>
-      <div className="w-full h-1.5 bg-white/10 rounded-full mt-1.5 mb-1 overflow-hidden">
-        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+    <div className={`relative rounded-xl overflow-hidden border p-4 ${tier ? `${tier.gradient} ${tier.border} ${tier.glow}` : 'bg-white/4 border-white/8'}`}>
+      {tier && <div className="absolute -top-3 -right-3 w-16 h-16 rounded-full blur-2xl opacity-30 bg-white pointer-events-none" />}
+      <div className="relative">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className={`text-2xl font-black ${color}`}>{pct}%</p>
+          {tier && <span className="text-lg">{tier.icon}</span>}
+        </div>
+        <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-1">
+          <div className={`h-full rounded-full ${barClass}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-white/40 text-[11px]">{tier ? tier.label : 'Global accuracy'}</p>
       </div>
-      <p className="text-gray-400 text-xs">Global accuracy</p>
     </div>
   )
 }
@@ -105,6 +152,10 @@ export default function UserDetailPage() {
 
   const { stats, current_division, sprint_history, division_history } = user
 
+  const lifetimeLP      = sprint_history.reduce((s, r) => s + (r.total_league_points ?? 0), 0)
+  const totalPerfect    = sprint_history.reduce((s, r) => s + (r.perfect_weeks ?? 0), 0)
+  const tier            = getAccuracyTier(stats.accuracy_pct)
+
   return (
     <>
       <ToastContainer toasts={toasts}/>
@@ -115,44 +166,100 @@ export default function UserDetailPage() {
         </button>
 
         {/* Header */}
-        <div className="bg-[#111520] border border-white/8 rounded-2xl p-6">
-          <div className="flex items-start gap-5 flex-wrap">
-            <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white text-2xl font-bold shrink-0">
-              {user.email?.[0]?.toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 flex-wrap mb-1">
-                <h1 className="text-white font-bold text-xl">{user.display_name ?? 'No name'}</h1>
-                <StatusBadge status={user.role}/>
-                {current_division && (
-                  <span className="text-sm text-gray-300 bg-white/6 border border-white/10 px-2.5 py-0.5 rounded-full">
-                    {current_division.icon} {current_division.name}
-                    {current_division.is_rookie && <span className="ml-1 text-indigo-400 text-[10px] font-bold">ROOKIE</span>}
-                  </span>
-                )}
+        <div className={`border rounded-2xl p-6 overflow-hidden relative transition-all ${
+          tier ? `${tier.gradient} ${tier.border} ${tier.glow}` : 'bg-[#111520] border-white/8'
+        }`}>
+          {tier && <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full blur-3xl opacity-20 bg-white pointer-events-none" />}
+          <div className="relative">
+            <div className="flex items-start gap-5 flex-wrap">
+              {/* Avatar */}
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold shrink-0 ${
+                tier ? 'bg-white/10 border-2' : 'bg-indigo-600'
+              }`} style={tier ? { borderColor: tier.border.replace('border-','').replace('/40',''), boxShadow: `0 0 18px -4px currentColor` } : {}}>
+                {user.avatar_url
+                  ? <img src={user.avatar_url} alt="" className="w-full h-full object-cover rounded-full" />
+                  : user.email?.[0]?.toUpperCase()
+                }
               </div>
-              <p className="text-gray-400 text-sm">{user.email}</p>
-              <p className="text-gray-500 text-xs mt-0.5">
-                Member since {new Date(user.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-yellow-400 text-2xl font-bold">⚡ {user.energy_balance ?? 0}</p>
-              <p className="text-gray-500 text-xs">energy</p>
-            </div>
-          </div>
 
-          {/* Quick stats grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
-            <StatBox label="Sprints played"    value={stats.sprints_played}    color="text-indigo-400"/>
-            <StatBox label="Matchweeks played" value={stats.matchweeks_played} color="text-indigo-400"/>
-            <StatBox
-              label="Picks record"
-              value={`${stats.total_correct}W / ${stats.total_incorrect}L`}
-              color="text-white"
-              sub={`${stats.total_correct + stats.total_incorrect} total picks`}
-            />
-            <AccuracyRing pct={stats.accuracy_pct}/>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 flex-wrap mb-1">
+                  <h1 className="text-white font-bold text-xl">{user.display_name ?? 'No name'}</h1>
+                  <StatusBadge status={user.role}/>
+                  {current_division && (
+                    <span className="text-sm text-gray-300 bg-white/6 border border-white/10 px-2.5 py-0.5 rounded-full">
+                      {current_division.icon} {current_division.name}
+                      {current_division.is_rookie && <span className="ml-1 text-indigo-400 text-[10px] font-bold">ROOKIE</span>}
+                    </span>
+                  )}
+                  {tier && (
+                    <span className={`text-sm font-bold px-2.5 py-0.5 rounded-full border ${tier.border} ${tier.textColor}`}
+                      style={{ background: 'rgba(255,255,255,0.06)' }}>
+                      {tier.icon} {tier.label}
+                    </span>
+                  )}
+                </div>
+                <p className="text-gray-400 text-sm">{user.email}</p>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  Member since {new Date(user.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
+              </div>
+
+              <div className="text-right shrink-0">
+                <p className="text-yellow-400 text-2xl font-bold">⚡ {user.energy_balance ?? 0}</p>
+                <p className="text-gray-500 text-xs">energy balance</p>
+              </div>
+            </div>
+
+            {/* Stat cards — same style as ProfilePage */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-5">
+              <StatCard
+                label="League Points"
+                value={lifetimeLP}
+                icon="🏆"
+                gradient="bg-gradient-to-br from-indigo-950 to-[#111520]"
+                border="border-indigo-500/30"
+                glow="shadow-[0_0_20px_-6px_rgba(99,102,241,0.4)]"
+                textColor="text-indigo-400"
+              />
+              <StatCard
+                label="Correct picks"
+                value={stats.total_correct}
+                icon="✅"
+                gradient="bg-gradient-to-br from-green-950 to-[#111520]"
+                border="border-green-500/30"
+                glow="shadow-[0_0_20px_-6px_rgba(34,197,94,0.35)]"
+                textColor="text-green-400"
+              />
+              <StatCard
+                label="Wrong picks"
+                value={stats.total_incorrect}
+                icon="❌"
+                gradient="bg-gradient-to-br from-red-950 to-[#111520]"
+                border="border-red-500/20"
+                glow=""
+                textColor="text-red-400"
+              />
+              <StatCard
+                label="Perfect weeks"
+                value={totalPerfect}
+                icon="⭐"
+                gradient="bg-gradient-to-br from-yellow-950 to-[#111520]"
+                border="border-yellow-500/25"
+                glow="shadow-[0_0_20px_-6px_rgba(234,179,8,0.3)]"
+                textColor="text-yellow-400"
+              />
+              <StatCard
+                label="Sprints played"
+                value={stats.sprints_played}
+                icon="🏃"
+                gradient="bg-gradient-to-br from-violet-950 to-[#111520]"
+                border="border-violet-500/25"
+                glow=""
+                textColor="text-violet-400"
+              />
+              <AccuracyBar pct={stats.accuracy_pct} />
+            </div>
           </div>
         </div>
 
@@ -171,32 +278,53 @@ export default function UserDetailPage() {
           {/* ── OVERVIEW ─────────────────────────────────────── */}
           {tab === 'Overview' && (
             <div className="space-y-6">
+
+              {/* Accuracy tier card */}
+              {tier ? (
+                <div className={`relative rounded-xl overflow-hidden border p-5 ${tier.gradient} ${tier.border} ${tier.glow}`}>
+                  <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-20 bg-white pointer-events-none" />
+                  <div className="relative flex items-center gap-4">
+                    <span className="text-5xl">{tier.icon}</span>
+                    <div>
+                      <p className={`text-xl font-black ${tier.textColor}`}>{tier.label}</p>
+                      <p className="text-white/50 text-sm mt-0.5">{tier.desc} · {stats.accuracy_pct}% global accuracy</p>
+                      <div className="w-48 h-1.5 bg-white/10 rounded-full mt-2 overflow-hidden">
+                        <div className={`h-full rounded-full ${tier.barColor}`} style={{ width: `${stats.accuracy_pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white/4 border border-white/8 rounded-xl p-4 flex items-center gap-3">
+                  <span className="text-2xl text-gray-600">🎯</span>
+                  <div>
+                    <p className="text-gray-400 text-sm font-semibold">No predictor tier yet</p>
+                    <p className="text-gray-600 text-xs">Reach 70%+ accuracy to earn a tier · current: {stats.accuracy_pct !== null ? `${stats.accuracy_pct}%` : 'no picks yet'}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Activity summary */}
               <div>
-                <h3 className="text-white font-semibold text-sm mb-3">Activity summary</h3>
+                <h3 className="text-white font-semibold text-sm mb-3">Activity</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Member since</p>
-                    <p className="text-white text-sm">{new Date(user.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
+                    <p className="text-gray-500 text-xs mb-1">Current division</p>
+                    <p className="text-white text-sm font-semibold">{current_division ? `${current_division.icon} ${current_division.name}` : '—'}</p>
+                    {current_division?.is_rookie && <p className="text-indigo-400 text-[10px] font-bold mt-0.5">ROOKIE</p>}
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Current division</p>
-                    <p className="text-white text-sm">{current_division ? `${current_division.icon} ${current_division.name}` : '—'}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Sprints completed</p>
-                    <p className="text-white text-sm font-bold">{stats.sprints_played}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Matchweeks played</p>
+                  <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
+                    <p className="text-gray-500 text-xs mb-1">Matchweeks played</p>
                     <p className="text-white text-sm font-bold">{stats.matchweeks_played}</p>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Correct picks</p>
-                    <p className="text-green-400 text-sm font-bold">{stats.total_correct}</p>
+                  <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
+                    <p className="text-gray-500 text-xs mb-1">Total picks</p>
+                    <p className="text-white text-sm font-bold">{stats.total_correct + stats.total_incorrect}</p>
+                    <p className="text-gray-600 text-[10px]"><span className="text-green-400">{stats.total_correct}✓</span> · <span className="text-red-400">{stats.total_incorrect}✗</span></p>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-gray-500 text-xs">Wrong picks</p>
-                    <p className="text-red-400 text-sm font-bold">{stats.total_incorrect}</p>
+                  <div className="bg-white/4 border border-white/8 rounded-xl px-4 py-3">
+                    <p className="text-gray-500 text-xs mb-1">Lifetime LP</p>
+                    <p className="text-indigo-400 text-sm font-bold">{lifetimeLP}</p>
                   </div>
                 </div>
               </div>
@@ -217,10 +345,11 @@ export default function UserDetailPage() {
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${oc.bg} ${oc.color}`}>{oc.label}</span>
                         </div>
                         <p className="text-gray-500 text-xs mb-3">{s.division_icon} {s.division_name} · {new Date(s.start_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – {new Date(s.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-                        <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className="grid grid-cols-5 gap-2 text-center">
                           <div><p className="text-indigo-400 font-black text-lg">{s.total_league_points}</p><p className="text-gray-600 text-[10px]">LP</p></div>
                           <div><p className="text-green-400 font-black text-lg">{s.total_correct_picks}</p><p className="text-gray-600 text-[10px]">Correct</p></div>
                           <div><p className="text-red-400 font-black text-lg">{s.total_incorrect_picks}</p><p className="text-gray-600 text-[10px]">Wrong</p></div>
+                          <div><p className="text-yellow-400 font-black text-lg">{s.perfect_weeks ?? 0}⭐</p><p className="text-gray-600 text-[10px]">Perfect</p></div>
                           <div><p className="text-white font-black text-lg">{acc !== null ? `${acc}%` : '—'}</p><p className="text-gray-600 text-[10px]">Accuracy</p></div>
                         </div>
                       </div>
