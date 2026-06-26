@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
   getSprint, updateSprint, activateSprint, settleSprint,
   addSprintGameweek, removeSprintGameweek, getRankings, getAvailableFixtures,
   importFixturesByRange,
 } from '../../api/sprints'
-import { publishGameweek } from '../../api/gameweeks'
+import { publishGameweek, unlockGameweek, resolveGameweekAdmin } from '../../api/gameweeks'
 import { refreshFixtureResults } from '../../api/competitions'
 
 const STATUS_DOT = {
@@ -69,9 +69,7 @@ function getWeekBounds(sprintStart, week) {
   const base = new Date(sprintStart)
   const weekStart = new Date(base.getTime() + (week - 1) * 7 * 86400000)
   const weekEnd   = new Date(weekStart.getTime() + 7 * 86400000)
-  const lockDate  = new Date(weekEnd.getTime() - 86400000)
-  lockDate.setUTCHours(19, 0, 0, 0)
-  return { weekStart, weekEnd, defaultLock: lockDate.toISOString().slice(0, 16) }
+  return { weekStart, weekEnd }
 }
 
 function fmtDate(d) {
@@ -124,8 +122,8 @@ function FixtureRow({ fix, selected, disabled, onToggle }) {
 }
 
 // ── Gameweek section (one per week, always expanded) ─────────────────────────
-function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved, onFixturesImported }) {
-  const { weekStart, weekEnd, defaultLock } = getWeekBounds(sprintStart, week)
+function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved, onFixturesImported, onFlash }) {
+  const { weekStart, weekEnd } = getWeekBounds(sprintStart, week)
 
   const initEvents = useCallback(() => {
     if (!existingGw?.events?.length) return []
@@ -156,12 +154,14 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   }, [existingGw])
 
   const [events, setEvents]       = useState(initEvents)
-  const [lockTime, setLockTime]   = useState(existingGw?.lock_time?.slice(0, 16) || defaultLock)
   const [saving, setSaving]       = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const [err, setErr]             = useState('')
   const [msg, setMsg]             = useState('')
+  const isDirty = useRef(false)
 
   const handleImport = async () => {
     setImporting(true); setImportMsg('')
@@ -180,27 +180,22 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     }
   }
 
-  // Re-init when existingGw changes (after save/reload)
-  useEffect(() => { setEvents(initEvents()) }, [initEvents])
-  useEffect(() => {
-    if (existingGw?.lock_time) setLockTime(existingGw.lock_time.slice(0, 16))
-  }, [existingGw])
+  // Re-init when existingGw changes (after save/reload), but not while user has unsaved edits
+  useEffect(() => { if (!isDirty.current) setEvents(initEvents()) }, [initEvents])
 
-  // Auto-update lock time to 5 min before earliest fixture whenever events change
-  useEffect(() => {
-    if (existingGw?.lock_time) return  // don't override an already-saved lock
-    if (events.length === 0) { setLockTime(defaultLock); return }
-    const earliest = events.reduce((min, ev) =>
-      ev.match_time && new Date(ev.match_time) < new Date(min) ? ev.match_time : min,
-      events[0].match_time || defaultLock
-    )
-    const autoLock = new Date(new Date(earliest).getTime() - 5 * 60 * 1000)
-    setLockTime(autoLock.toISOString().slice(0, 16))
-  }, [events, existingGw?.lock_time, defaultLock])
+  // Computed lock time: 1h before earliest match_time in events (auto-managed by backend)
+  const computedLockTime = useMemo(() => {
+    const times = events
+      .map(e => e.match_time ? new Date(e.match_time).getTime() : null)
+      .filter(t => t !== null && !isNaN(t))
+    if (!times.length) return null
+    return new Date(Math.min(...times) - 60 * 60 * 1000)
+  }, [events])
 
   const isSelected = (id) => events.some(ev => ev.fixture_id === String(id))
 
   const toggleFixture = (fix) => {
+    isDirty.current = true
     if (isSelected(fix.id)) {
       setEvents(prev => prev.filter(ev => ev.fixture_id !== String(fix.id)))
     } else if (events.length < 15) {
@@ -219,6 +214,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   }
 
   const updateEventType = (idx, type) => {
+    isDirty.current = true
     setEvents(prev => prev.map((ev, i) => {
       if (i !== idx) return ev
       return { ...ev, event_type: type, options: buildOptions(type, ev.home_team, ev.away_team, ev.threshold) }
@@ -226,6 +222,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   }
 
   const updateThreshold = (idx, threshold) => {
+    isDirty.current = true
     setEvents(prev => prev.map((ev, i) => {
       if (i !== idx) return ev
       return { ...ev, threshold, options: buildOptions(ev.event_type, ev.home_team, ev.away_team, threshold) }
@@ -233,17 +230,19 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   }
 
   const updatePlayerName = (idx, player_name) => {
+    isDirty.current = true
     setEvents(prev => prev.map((ev, i) => i !== idx ? ev : { ...ev, player_name }))
   }
 
   const updateEnergyCost = (evIdx, optIdx, energy_cost) => {
+    isDirty.current = true
     setEvents(prev => prev.map((ev, i) => {
       if (i !== evIdx) return ev
       return { ...ev, options: ev.options.map((o, j) => j === optIdx ? { ...o, energy_cost: Number(energy_cost) } : o) }
     }))
   }
 
-  const removeEvent = (idx) => setEvents(prev => prev.filter((_, i) => i !== idx))
+  const removeEvent = (idx) => { isDirty.current = true; setEvents(prev => prev.filter((_, i) => i !== idx)) }
 
   const handleSave = async (andPublish = false) => {
     if (andPublish && events.length !== 15) { setErr('Need exactly 15 events to publish'); return }
@@ -255,10 +254,11 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
       // If editing an already-published gameweek, always re-publish after saving
       const wasPublished = gwStatus === 'PUBLISHED'
       const shouldPublish = andPublish || wasPublished
-      const res = await addSprintGameweek(sprintId, { sprint_week: week, lock_time: lockTime, events })
+      const res = await addSprintGameweek(sprintId, { sprint_week: week, events })
       if (shouldPublish) await publishGameweek(res.data.gameweek_id)
       setMsg(shouldPublish ? 'Gameweek published!' : 'Draft saved!')
       setEditing(false)
+      isDirty.current = false
       setTimeout(() => setMsg(''), 3000)
       onSaved()
     } catch (e) {
@@ -266,6 +266,31 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleUnlock = async () => {
+    if (!existingGw?.id) return
+    if (!window.confirm('Reopen picks? This will recalculate lock time from events and unlock the pick window.')) return
+    setUnlocking(true)
+    try {
+      const res = await unlockGameweek(existingGw.id)
+      onFlash?.(`Pick window reopened — new lock: ${res.data?.lock_time ? new Date(res.data.lock_time).toLocaleString('en-GB') : 'auto-calculated'}`)
+      onSaved()
+    } catch (e) {
+      setErr(e.response?.data?.message || 'Unlock failed')
+    } finally { setUnlocking(false) }
+  }
+
+  const handleResolve = async () => {
+    if (!existingGw?.id) return
+    setResolving(true)
+    try {
+      const res = await resolveGameweekAdmin(existingGw.id)
+      onFlash?.(`Resolved! Picks scored, gameweek is now FINISHED.`)
+      onSaved()
+    } catch (e) {
+      setErr(e.response?.data?.message || 'Resolve failed')
+    } finally { setResolving(false) }
   }
 
   // Group fixtures by league
@@ -320,56 +345,87 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
           {err && <div className="bg-red-900/20 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">{err}</div>}
           {msg && <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-xl px-4 py-3 text-indigo-300 text-sm">{msg}</div>}
 
-          {/* Lock time */}
-          <div className="flex items-center gap-4">
-            <div className="flex-shrink-0">
-              <label className="text-gray-500 text-xs block mb-1">Picks lock time</label>
-              <input
-                type="datetime-local"
-                value={lockTime}
-                onChange={e => setLockTime(e.target.value)}
-                disabled={!isEditing}
-                className={`${inp} w-auto min-w-[220px]`}
-              />
+          {/* Lock time — auto-calculated, shown as info only */}
+          <div className="flex items-center gap-3 px-3 py-2.5 bg-white/3 border border-white/8 rounded-xl">
+            <span className="text-lg">🔒</span>
+            <div>
+              <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Auto-locks</p>
+              <p className="text-white text-sm font-medium">
+                {(isEditing ? computedLockTime : existingGw?.lock_time ? new Date(existingGw.lock_time) : computedLockTime)
+                  ? `${fmtDate(isEditing ? computedLockTime : existingGw?.lock_time || computedLockTime)} at ${fmtTime(isEditing ? computedLockTime : existingGw?.lock_time || computedLockTime)}`
+                  : events.length === 0 ? 'Add events to calculate' : '1h before first kick-off'}
+              </p>
             </div>
-            <div className="text-gray-600 text-xs">
-              <p>After this time, no new picks can be submitted for this week.</p>
-              <p className="mt-0.5">Typically set just before the first match of the week.</p>
-            </div>
+            <p className="text-gray-700 text-xs ml-auto">1h before first kick-off · auto-managed</p>
           </div>
 
-          {/* Stats row + edit button for non-empty gameweeks */}
+          {/* Stats row + action buttons for non-empty gameweeks */}
           {gwStatus && (
-            <div className="flex items-center gap-3">
-              <div className="grid grid-cols-4 gap-2 flex-1">
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-2">
                 {[
-                  ['Events', (existingGw.event_count ?? events.length) + '/15'],
-                  ['Entries', existingGw.entry_count ?? 0],
-                  ['Lock', new Date(existingGw.lock_time).toLocaleDateString()],
-                  ['Status', gwStatus],
+                  ['Events',  (existingGw.event_count ?? events.length) + '/15'],
+                  ['Picks in', existingGw.entry_count ?? 0],
+                  ['Lock',    new Date(existingGw.lock_time).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' })],
+                  ['Status',  gwStatus],
                 ].map(([label, val]) => (
                   <div key={label} className="bg-white/3 border border-white/5 rounded-xl p-2.5 text-center">
                     <p className="text-gray-600 text-[10px]">{label}</p>
-                    <p className="text-white font-bold text-xs mt-0.5">{val}</p>
+                    <p className={`font-bold text-xs mt-0.5 ${
+                      label === 'Status'
+                        ? gwStatus === 'PUBLISHED' ? 'text-blue-400'
+                        : gwStatus === 'LOCKED'    ? 'text-yellow-400'
+                        : gwStatus === 'FINISHED'  ? 'text-purple-400'
+                        : 'text-white'
+                        : 'text-white'
+                    }`}>{val}</p>
                   </div>
                 ))}
               </div>
-              {gwStatus === 'PUBLISHED' && !editing && (
-                <button
-                  onClick={() => setEditing(true)}
-                  className="px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-semibold transition-colors flex-shrink-0"
-                >
-                  Edit events
-                </button>
-              )}
-              {gwStatus === 'PUBLISHED' && editing && (
-                <button
-                  onClick={() => { setEditing(false); setEvents(initEvents()) }}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-400 border border-white/10 rounded-xl text-xs transition-colors flex-shrink-0"
-                >
-                  Cancel
-                </button>
-              )}
+              <div className="flex gap-2 flex-wrap">
+                {gwStatus === 'PUBLISHED' && !editing && (
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    Edit events
+                  </button>
+                )}
+                {gwStatus === 'PUBLISHED' && editing && (
+                  <button
+                    onClick={() => { setEditing(false); isDirty.current = false; setEvents(initEvents()) }}
+                    className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 border border-white/10 rounded-xl text-xs transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+                {gwStatus === 'LOCKED' && (
+                  <>
+                    <button
+                      onClick={handleUnlock}
+                      disabled={unlocking}
+                      className="px-3 py-1.5 bg-orange-600/15 hover:bg-orange-600/30 text-orange-400 border border-orange-500/20 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                      title="Reopen pick window — recalculates lock time from events"
+                    >
+                      {unlocking
+                        ? <><span className="w-3 h-3 border border-orange-400/30 border-t-orange-400 rounded-full animate-spin"/>Unlocking…</>
+                        : '🔓 Reopen picks'
+                      }
+                    </button>
+                    <button
+                      onClick={handleResolve}
+                      disabled={resolving}
+                      className="px-3 py-1.5 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/20 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40 flex items-center gap-1.5"
+                      title="Score all picks and mark gameweek FINISHED"
+                    >
+                      {resolving
+                        ? <><span className="w-3 h-3 border border-purple-400/30 border-t-purple-400 rounded-full animate-spin"/>Resolving…</>
+                        : '⚡ Resolve & score picks'
+                      }
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -904,6 +960,16 @@ export default function SprintDetailPage() {
   // Load fixtures for the full sprint period when sprint data arrives
   useEffect(() => { loadFixtures() }, [loadFixtures])
 
+  // Auto-refresh sprint data every 30s when sprint is live or has locked gameweeks
+  useEffect(() => {
+    if (!sprint) return
+    const isActive = sprint.status === 'live' || sprint.status === 'scheduled'
+    const hasLockedGw = sprint.gameweeks?.some(g => g.status === 'LOCKED')
+    if (!isActive && !hasLockedGw) return
+    const interval = setInterval(() => { load() }, 30000)
+    return () => clearInterval(interval)
+  }, [sprint?.status, sprint?.gameweeks, load])
+
   // Build a map of week → gameweek record
   const gwByWeek = useMemo(() => {
     const map = {}
@@ -975,11 +1041,19 @@ export default function SprintDetailPage() {
               {fmtDateFull(sprint.start_date)} → {fmtDateFull(sprint.end_date)}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${STATUS_DOT[sprint.status] || 'bg-gray-600'}`}/>
-            <span className={`text-sm font-semibold ${STATUS_TEXT[sprint.status] || 'text-gray-400'}`}>
-              {sprint.status?.toUpperCase()}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${STATUS_DOT[sprint.status] || 'bg-gray-600'}`}/>
+              <span className={`text-sm font-semibold ${STATUS_TEXT[sprint.status] || 'text-gray-400'}`}>
+                {sprint.status?.toUpperCase()}
+              </span>
+            </div>
+            {(sprint.status === 'live' || sprint.gameweeks?.some(g => g.status === 'LOCKED')) && (
+              <span className="flex items-center gap-1.5 text-[10px] text-gray-600 bg-white/3 border border-white/8 rounded-lg px-2 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>
+                Auto-refresh 30s
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1164,13 +1238,14 @@ export default function SprintDetailPage() {
               loadingFixtures={loadingFix}
               onSaved={load}
               onFixturesImported={loadFixtures}
+              onFlash={flash}
             />
           </div>
 
           <div className="bg-[#0d1117] border border-white/5 rounded-2xl p-4 text-xs text-gray-600 space-y-1">
             <p className="text-gray-400 font-medium">Workflow</p>
             <ol className="list-decimal list-inside space-y-0.5">
-              <li>Configure and publish each gameweek (W1 → W4) before activating</li>
+              <li>Configure and publish each gameweek before activating</li>
               <li>Activate the sprint to open competition for all players</li>
               <li>After all matches finish → Settle sprint to apply promotions/relegations</li>
             </ol>

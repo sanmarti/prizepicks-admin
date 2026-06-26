@@ -45,7 +45,7 @@ function buildYearSprints(year) {
     const start = firstMondayOfMonth(year, monthIdx)
     const end   = new Date(start.getTime() + 28 * 86400000 - 1000) // 4 weeks later, Sunday 23:59:59
     return {
-      name:           `${name} ${year}`,
+      name:           `Sprint of ${name} ${year}`,
       start_date:     start.toISOString(),
       end_date:       end.toISOString(),
       gameweek_count: 4,
