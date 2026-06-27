@@ -127,9 +127,10 @@ export default function UserDetailPage() {
       total_incorrect:   listUser.total_incorrect   ?? 0,
       accuracy_pct:      listUser.accuracy_pct      ?? null,
     },
-    current_division: listUser.current_division ?? null,
-    sprint_history:   [],
-    division_history: [],
+    current_division:  listUser.current_division ?? null,
+    sprint_history:    [],
+    division_history:  [],
+    matchweek_history: [],
   } : null)
 
   async function handleAdjustEnergy() {
