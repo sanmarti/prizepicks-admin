@@ -12,15 +12,28 @@ import ToastContainer from '../../components/admin/ui/ToastContainer'
 
 const FILTERS = ['All', 'admin', 'user', 'fake_user']
 
+const TIER_MAP = [
+  { min: 90, icon: '🥇', label: 'Gold',   color: 'text-yellow-400', bar: 'bg-gradient-to-r from-yellow-500 to-amber-300' },
+  { min: 80, icon: '🥈', label: 'Silver', color: 'text-slate-300',  bar: 'bg-gradient-to-r from-slate-400 to-slate-200' },
+  { min: 70, icon: '🥉', label: 'Bronze', color: 'text-orange-400', bar: 'bg-gradient-to-r from-orange-500 to-amber-400' },
+]
+function getAccuracyTier(pct) {
+  if (!pct || pct < 70) return null
+  return TIER_MAP.find(t => pct >= t.min) ?? null
+}
+
 function AccuracyBar({ pct }) {
   if (pct === null || pct === undefined) return <span className="text-gray-600 text-xs">—</span>
-  const color = pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+  const tier  = getAccuracyTier(pct)
+  const bar   = tier ? tier.bar : pct >= 60 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+  const label = tier ? tier.textColor : 'text-gray-300'
   return (
     <div className="flex items-center gap-2">
       <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs text-gray-300">{pct}%</span>
+      <span className={`text-xs font-medium ${tier ? tier.color : 'text-gray-300'}`}>{pct}%</span>
+      {tier && <span className="text-xs leading-none" title={`${tier.label} Predictor`}>{tier.icon}</span>}
     </div>
   )
 }
