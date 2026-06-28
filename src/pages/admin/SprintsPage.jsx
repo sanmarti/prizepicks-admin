@@ -226,7 +226,7 @@ export default function SprintsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-white text-xl font-bold">Sprints</h1>
-          <p className="text-gray-500 text-sm mt-0.5">4-week competitive blocks for 6 to Glory</p>
+          <p className="text-gray-500 text-sm mt-0.5">4-week competitive blocks for OddsRivals</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
