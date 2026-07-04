@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
-  getSprint, updateSprint, activateSprint, settleSprint,
-  addSprintGameweek, removeSprintGameweek, getRankings, getAvailableFixtures,
+  getSprint, updateSprint, activateSprint,
+  addSprintGameweek, removeSprintGameweek, updateGameweekDates, getRankings, getAvailableFixtures,
   importFixturesByRange,
 } from '../../api/sprints'
-import { publishGameweek, unlockGameweek, resolveGameweekAdmin } from '../../api/gameweeks'
+import { publishGameweek, unlockGameweek } from '../../api/gameweeks'
 import { refreshFixtureResults } from '../../api/competitions'
 
 const STATUS_DOT = {
@@ -26,21 +26,27 @@ const GW_STATUS = {
   FINISHED:  { color: 'text-purple-400', bg: 'bg-purple-900/30' },
 }
 
-const EVENT_TYPES = ['MATCH_RESULT', 'GOALS', 'BTTS', 'CLEAN_SHEET', 'CORNER_OVER', 'PLAYER_SCORE']
+const EVENT_TYPES = ['MATCH_RESULT', 'WHO_QUALIFIES', 'GOALS', 'BTTS', 'CLEAN_SHEET', 'CORNER_OVER', 'PLAYER_SCORE']
 const EVENT_TYPE_LABELS = {
-  MATCH_RESULT: 'Match Result', GOALS: 'Goals O/U', BTTS: 'Both Teams Score',
+  MATCH_RESULT: 'Match Result', WHO_QUALIFIES: 'Who Qualifies?', GOALS: 'Goals O/U', BTTS: 'Both Teams Score',
   CLEAN_SHEET: 'Clean Sheet', CORNER_OVER: 'Corners O/U', PLAYER_SCORE: 'Player Scores',
 }
+const KNOCKOUT_ROUND_RE = /final|quarter|semi|round of|knockout|playoff|cup round|eliminat/i
 const GOALS_THRESHOLDS    = ['0.5', '1.5', '2.5', '3.5', '4.5']
 const CORNER_THRESHOLDS   = ['7.5', '8.5', '9.5', '10.5', '11.5']
 
-function buildOptions(type, homeTeam, awayTeam, threshold) {
+function buildOptions(type, homeTeam, awayTeam, threshold, noDraw = false) {
   switch (type) {
-    case 'MATCH_RESULT': return [
-      { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: 4 },
-      { label: 'Draw',            result_key: 'DRAW',       energy_cost: 2 },
-      { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: 4 },
-    ]
+    case 'MATCH_RESULT': return noDraw
+      ? [
+          { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: 5 },
+          { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: 5 },
+        ]
+      : [
+          { label: `${homeTeam} Win`, result_key: 'HOME_WIN',  energy_cost: 4 },
+          { label: 'Draw',            result_key: 'DRAW',       energy_cost: 2 },
+          { label: `${awayTeam} Win`, result_key: 'AWAY_WIN',  energy_cost: 4 },
+        ]
     case 'GOALS': { const t = threshold || '2.5'; return [
       { label: `Over ${t} Goals`,  result_key: `OVER_${t}`,  energy_cost: 5 },
       { label: `Under ${t} Goals`, result_key: `UNDER_${t}`, energy_cost: 5 },
@@ -57,6 +63,10 @@ function buildOptions(type, homeTeam, awayTeam, threshold) {
       { label: `Over ${t} Corners`,  result_key: `CORNER_OVER_${t}`,  energy_cost: 5 },
       { label: `Under ${t} Corners`, result_key: `CORNER_UNDER_${t}`, energy_cost: 5 },
     ]}
+    case 'WHO_QUALIFIES': return [
+      { label: homeTeam, result_key: 'HOME_QUALIFIES', energy_cost: 5 },
+      { label: awayTeam, result_key: 'AWAY_QUALIFIES', energy_cost: 5 },
+    ]
     case 'PLAYER_SCORE': return [
       { label: 'Scores',         result_key: 'PLAYER_SCORES',   energy_cost: 5 },
       { label: 'Does not score', result_key: 'PLAYER_NO_SCORE', energy_cost: 5 },
@@ -65,10 +75,18 @@ function buildOptions(type, homeTeam, awayTeam, threshold) {
   }
 }
 
-function getWeekBounds(sprintStart, week) {
+function knockoutFixtureName(home, away) {
+  return `Who qualifies? ${home} vs ${away}`
+}
+
+function getWeekBounds(sprintStart, week, existingGw) {
+  // Use stored start_date if available (respects custom window), but always span a full 7 days.
+  // end_date is a settlement deadline, not a fixture-browser upper bound.
   const base = new Date(sprintStart)
-  const weekStart = new Date(base.getTime() + (week - 1) * 7 * 86400000)
-  const weekEnd   = new Date(weekStart.getTime() + 7 * 86400000)
+  const computedStart = new Date(base.getTime() + (week - 1) * 7 * 86400000)
+  computedStart.setUTCHours(0, 0, 0, 0)
+  const weekStart = existingGw?.start_date ? new Date(existingGw.start_date) : computedStart
+  const weekEnd   = new Date(weekStart.getTime() + 7 * 86400000 - 1000)
   return { weekStart, weekEnd }
 }
 
@@ -83,7 +101,8 @@ function fmtDateFull(d) {
 }
 
 // ── Fixture row inside the browser ────────────────────────────────────────────
-function FixtureRow({ fix, selected, disabled, onToggle }) {
+function FixtureRow({ fix, pickCount, disabled, onToggle }) {
+  const selected = pickCount > 0
   return (
     <button
       onClick={() => onToggle(fix)}
@@ -94,11 +113,11 @@ function FixtureRow({ fix, selected, disabled, onToggle }) {
           : 'bg-white/3 border border-transparent text-gray-300 hover:bg-white/6 hover:border-white/10 disabled:opacity-30 disabled:cursor-not-allowed'
       }`}
     >
-      {/* Checkbox */}
-      <div className={`w-5 h-5 rounded-md border flex-shrink-0 flex items-center justify-center text-[10px] transition-colors ${
+      {/* Pick count badge */}
+      <div className={`w-5 h-5 rounded-md border flex-shrink-0 flex items-center justify-center text-[10px] font-bold transition-colors ${
         selected ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-white/20 bg-white/5'
       }`}>
-        {selected && '✓'}
+        {selected ? pickCount : '+'}
       </div>
 
       {/* Teams */}
@@ -123,17 +142,24 @@ function FixtureRow({ fix, selected, disabled, onToggle }) {
 
 // ── Gameweek section (one per week, always expanded) ─────────────────────────
 function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures, loadingFixtures, onSaved, onFixturesImported, onFlash }) {
-  const { weekStart, weekEnd } = getWeekBounds(sprintStart, week)
+  const { weekStart, weekEnd } = getWeekBounds(sprintStart, week, existingGw)
 
   const initEvents = useCallback(() => {
     if (!existingGw?.events?.length) return []
     return existingGw.events.map(ev => {
-      // Derive home/away team from fixture_name "X vs Y" for re-editing
-      const [homeTeam = '', awayTeam = ''] = (ev.fixture_name || '').split(' vs ')
+      // Derive home/away team from options for WHO_QUALIFIES, otherwise from fixture_name
+      let homeTeam = '', awayTeam = ''
+      if (ev.event_type === 'WHO_QUALIFIES') {
+        homeTeam = (ev.options || []).find(o => o.result_key === 'HOME_QUALIFIES')?.label || ''
+        awayTeam = (ev.options || []).find(o => o.result_key === 'AWAY_QUALIFIES')?.label || ''
+      } else {
+        ;[homeTeam = '', awayTeam = ''] = (ev.fixture_name || '').split(' vs ')
+      }
       // Derive threshold from first option's result_key (e.g. OVER_2.5 → 2.5)
       const firstKey = ev.options?.[0]?.result_key || ''
       const thresholdMatch = firstKey.match(/_([\d.]+)$/)
       const threshold = thresholdMatch ? thresholdMatch[1] : '2.5'
+      const no_draw = ev.event_type === 'MATCH_RESULT' && !(ev.options || []).some(o => o.result_key === 'DRAW')
       return {
         fixture_id:   ev.fixture_id,
         fixture_name: ev.fixture_name,
@@ -144,6 +170,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
         event_type:   ev.event_type,
         player_name:  ev.player_name || '',
         threshold,
+        no_draw,
         options:      (ev.options || []).map(o => ({
           label:       o.label,
           result_key:  o.result_key,
@@ -154,14 +181,21 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   }, [existingGw])
 
   const [events, setEvents]       = useState(initEvents)
+  const [baseEnergy, setBaseEnergy] = useState(existingGw?.base_energy ?? 30)
   const [saving, setSaving]       = useState(false)
   const [unlocking, setUnlocking] = useState(false)
-  const [resolving, setResolving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const [err, setErr]             = useState('')
   const [msg, setMsg]             = useState('')
   const isDirty = useRef(false)
+
+  // Sync baseEnergy when existingGw loads/changes (don't override user edits)
+  useEffect(() => {
+    if (!isDirty.current && existingGw?.base_energy != null) {
+      setBaseEnergy(existingGw.base_energy)
+    }
+  }, [existingGw])
 
   const handleImport = async () => {
     setImporting(true); setImportMsg('')
@@ -192,32 +226,46 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     return new Date(Math.min(...times) - 60 * 60 * 1000)
   }, [events])
 
-  const isSelected = (id) => events.some(ev => ev.fixture_id === String(id))
+  const pickCount = (id) => events.filter(ev => ev.fixture_id === String(id)).length
 
   const toggleFixture = (fix) => {
+    if (events.length >= 15) return
     isDirty.current = true
-    if (isSelected(fix.id)) {
-      setEvents(prev => prev.filter(ev => ev.fixture_id !== String(fix.id)))
-    } else if (events.length < 15) {
-      setEvents(prev => [...prev, {
-        fixture_id:   String(fix.id),
-        fixture_name: `${fix.home_team} vs ${fix.away_team}`,
-        home_team:    fix.home_team,
-        away_team:    fix.away_team,
-        match_time:   fix.date,
-        competition:  fix.competition_name || '',
-        event_type:   'MATCH_RESULT',
-        threshold:    '2.5',
-        options:      buildOptions('MATCH_RESULT', fix.home_team, fix.away_team),
-      }])
-    }
+    const isKnockout = KNOCKOUT_ROUND_RE.test(fix.round || '')
+    const defaultType = isKnockout ? 'WHO_QUALIFIES' : 'MATCH_RESULT'
+    setEvents(prev => [...prev, {
+      fixture_id:   String(fix.id),
+      fixture_name: isKnockout
+        ? knockoutFixtureName(fix.home_team, fix.away_team)
+        : `${fix.home_team} vs ${fix.away_team}`,
+      home_team:    fix.home_team,
+      away_team:    fix.away_team,
+      match_time:   fix.date,
+      competition:  fix.competition_name || '',
+      event_type:   defaultType,
+      threshold:    '2.5',
+      no_draw:      false,
+      options:      buildOptions(defaultType, fix.home_team, fix.away_team, '2.5', false),
+    }])
   }
 
   const updateEventType = (idx, type) => {
     isDirty.current = true
     setEvents(prev => prev.map((ev, i) => {
       if (i !== idx) return ev
-      return { ...ev, event_type: type, options: buildOptions(type, ev.home_team, ev.away_team, ev.threshold) }
+      const no_draw = type === 'MATCH_RESULT' ? ev.no_draw : false
+      const fixture_name = type === 'WHO_QUALIFIES'
+        ? knockoutFixtureName(ev.home_team, ev.away_team)
+        : `${ev.home_team} vs ${ev.away_team}`
+      return { ...ev, event_type: type, no_draw, fixture_name, options: buildOptions(type, ev.home_team, ev.away_team, ev.threshold, no_draw) }
+    }))
+  }
+
+  const updateNoDraw = (idx, no_draw) => {
+    isDirty.current = true
+    setEvents(prev => prev.map((ev, i) => {
+      if (i !== idx) return ev
+      return { ...ev, no_draw, options: buildOptions(ev.event_type, ev.home_team, ev.away_team, ev.threshold, no_draw) }
     }))
   }
 
@@ -225,7 +273,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     isDirty.current = true
     setEvents(prev => prev.map((ev, i) => {
       if (i !== idx) return ev
-      return { ...ev, threshold, options: buildOptions(ev.event_type, ev.home_team, ev.away_team, threshold) }
+      return { ...ev, threshold, options: buildOptions(ev.event_type, ev.home_team, ev.away_team, threshold, ev.no_draw) }
     }))
   }
 
@@ -247,14 +295,16 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const handleSave = async (andPublish = false) => {
     if (andPublish && events.length !== 15) { setErr('Need exactly 15 events to publish'); return }
     if (events.length === 0) { setErr('Add at least 1 event'); return }
-    const badEvent = events.find(ev => ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0) !== 10)
-    if (badEvent) { setErr(`Energy costs for "${badEvent.fixture_name}" must sum to 10`); return }
+    if (andPublish) {
+      const badEvent = events.find(ev => ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0) !== 10)
+      if (badEvent) { setErr(`Energy costs for "${badEvent.fixture_name}" must sum to 10`); return }
+    }
     setSaving(true); setErr('')
     try {
       // If editing an already-published gameweek, always re-publish after saving
       const wasPublished = gwStatus === 'PUBLISHED'
       const shouldPublish = andPublish || wasPublished
-      const res = await addSprintGameweek(sprintId, { sprint_week: week, events })
+      const res = await addSprintGameweek(sprintId, { sprint_week: week, events, base_energy: baseEnergy })
       if (shouldPublish) await publishGameweek(res.data.gameweek_id)
       setMsg(shouldPublish ? 'Gameweek published!' : 'Draft saved!')
       setEditing(false)
@@ -262,7 +312,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
       setTimeout(() => setMsg(''), 3000)
       onSaved()
     } catch (e) {
-      setErr(e.response?.data?.message || 'Save failed')
+      setErr(e.response?.data?.error || e.response?.data?.message || 'Save failed')
     } finally {
       setSaving(false)
     }
@@ -281,28 +331,29 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
     } finally { setUnlocking(false) }
   }
 
-  const handleResolve = async () => {
-    if (!existingGw?.id) return
-    setResolving(true)
-    try {
-      const res = await resolveGameweekAdmin(existingGw.id)
-      onFlash?.(`Resolved! Picks scored, gameweek is now FINISHED.`)
-      onSaved()
-    } catch (e) {
-      setErr(e.response?.data?.message || 'Resolve failed')
-    } finally { setResolving(false) }
-  }
+  const [filterLeague, setFilterLeague] = useState('')
 
   // Group fixtures by league
+  const allLeagues = useMemo(() => {
+    const seen = new Set()
+    for (const f of weekFixtures) seen.add(f.competition_name || 'Other')
+    return [...seen].sort()
+  }, [weekFixtures])
+
+  const filteredFixtures = useMemo(() =>
+    filterLeague ? weekFixtures.filter(f => (f.competition_name || 'Other') === filterLeague) : weekFixtures,
+    [weekFixtures, filterLeague]
+  )
+
   const groupedFixtures = useMemo(() => {
     const groups = {}
-    for (const f of weekFixtures) {
+    for (const f of filteredFixtures) {
       const league = f.competition_name || 'Other'
       if (!groups[league]) groups[league] = []
       groups[league].push(f)
     }
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [weekFixtures])
+  }, [filteredFixtures])
 
   // Determine week status
   const gwStatus = existingGw?.status || null
@@ -359,15 +410,49 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
             <p className="text-gray-700 text-xs ml-auto">1h before first kick-off · auto-managed</p>
           </div>
 
+          {/* Base energy */}
+          <div className="flex items-center gap-3 px-3 py-2.5 bg-white/3 border border-white/8 rounded-xl">
+            <span className="text-lg">⚡</span>
+            <div className="flex-1">
+              <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold mb-1">Base energy per user</p>
+              {isEditing ? (
+                <div className="flex items-center gap-2">
+                  {[25, 30, 35, 40].map(v => (
+                    <button
+                      key={v}
+                      onClick={() => { isDirty.current = true; setBaseEnergy(v) }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                        baseEnergy === v
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-white/5 border-white/10 text-gray-400 hover:border-indigo-500/50'
+                      }`}
+                    >{v}</button>
+                  ))}
+                  <input
+                    type="number"
+                    min={10} max={60}
+                    value={baseEnergy}
+                    onChange={e => { isDirty.current = true; setBaseEnergy(Number(e.target.value)) }}
+                    className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-xs text-center focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              ) : (
+                <p className="text-white text-sm font-medium">{baseEnergy} units</p>
+              )}
+            </div>
+            <p className="text-gray-700 text-xs ml-auto">free user budget</p>
+          </div>
+
           {/* Stats row + action buttons for non-empty gameweeks */}
           {gwStatus && (
             <div className="space-y-3">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-5 gap-2">
                 {[
-                  ['Events',  (existingGw.event_count ?? events.length) + '/15'],
+                  ['Events',   (existingGw.event_count ?? events.length) + '/15'],
                   ['Picks in', existingGw.entry_count ?? 0],
-                  ['Lock',    new Date(existingGw.lock_time).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' })],
-                  ['Status',  gwStatus],
+                  ['Locks',    existingGw.lock_time ? new Date(existingGw.lock_time).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'],
+                  ['Closes',   existingGw.end_date  ? new Date(existingGw.end_date).toLocaleDateString('en-GB',  { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'],
+                  ['Status',   gwStatus],
                 ].map(([label, val]) => (
                   <div key={label} className="bg-white/3 border border-white/5 rounded-xl p-2.5 text-center">
                     <p className="text-gray-600 text-[10px]">{label}</p>
@@ -410,17 +495,6 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                       {unlocking
                         ? <><span className="w-3 h-3 border border-orange-400/30 border-t-orange-400 rounded-full animate-spin"/>Unlocking…</>
                         : '🔓 Reopen picks'
-                      }
-                    </button>
-                    <button
-                      onClick={handleResolve}
-                      disabled={resolving}
-                      className="px-3 py-1.5 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/20 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40 flex items-center gap-1.5"
-                      title="Score all picks and mark gameweek FINISHED"
-                    >
-                      {resolving
-                        ? <><span className="w-3 h-3 border border-purple-400/30 border-t-purple-400 rounded-full animate-spin"/>Resolving…</>
-                        : '⚡ Resolve & score picks'
                       }
                     </button>
                   </>
@@ -527,6 +601,31 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                   </div>
                 )}
 
+                {/* Competition filter pills */}
+                {allLeagues.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    <button
+                      onClick={() => setFilterLeague('')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                        !filterLeague ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/10'
+                      }`}
+                    >
+                      All ({weekFixtures.length})
+                    </button>
+                    {allLeagues.map(l => (
+                      <button
+                        key={l}
+                        onClick={() => setFilterLeague(l === filterLeague ? '' : l)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                          filterLeague === l ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/10'
+                        }`}
+                      >
+                        {l} ({weekFixtures.filter(f => (f.competition_name || 'Other') === l).length})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {groupedFixtures.length > 0 && (
                   <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
                     {groupedFixtures.map(([league, fixes]) => (
@@ -543,8 +642,8 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                             <FixtureRow
                               key={fix.id}
                               fix={fix}
-                              selected={isSelected(fix.id)}
-                              disabled={!isSelected(fix.id) && events.length >= 15}
+                              pickCount={pickCount(fix.id)}
+                              disabled={events.length >= 15}
                               onToggle={toggleFixture}
                             />
                           ))}
@@ -561,7 +660,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                   <p className="text-white font-semibold mb-3">Selected events ({events.length}/15)</p>
                   <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                     {events.map((ev, evIdx) => (
-                      <div key={ev.fixture_id || evIdx}
+                      <div key={evIdx}
                         className="bg-white/3 border border-white/8 rounded-2xl p-4 space-y-3">
 
                         {/* Header */}
@@ -796,12 +895,184 @@ function RankingsTab({ sprintId, gwCount }) {
   )
 }
 
+// ── Gameweek date editor row ──────────────────────────────────────────────────
+function GameweekDateRow({ week, gw, sprintId, sprintStart, onSaved }) {
+  const computed = getWeekBounds(sprintStart, week)
+  const storedStart = gw?.start_date ? gw.start_date.slice(0, 16) : computed.weekStart.toISOString().slice(0, 16)
+  const storedEnd   = gw?.end_date   ? gw.end_date.slice(0, 16)   : computed.weekEnd.toISOString().slice(0, 16)
+
+  const [editing, setEditing] = useState(false)
+  const [form, setForm]       = useState({ start_date: storedStart, end_date: storedEnd })
+  const [saving, setSaving]   = useState(false)
+  const [msg, setMsg]         = useState('')
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const inp = "w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+
+  const statusInfo = gw ? GW_STATUS[gw.status] : null
+
+  const handleSave = async () => {
+    if (!gw) return
+    setSaving(true)
+    try {
+      await updateGameweekDates(sprintId, gw.id, form)
+      setMsg('Saved!')
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      setMsg(e.response?.data?.error || 'Save failed')
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMsg(''), 3000)
+    }
+  }
+
+  return (
+    <div className="bg-white/3 border border-white/8 rounded-2xl px-4 py-3 space-y-2">
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-base flex-shrink-0 ${
+          !gw ? 'bg-white/5 border border-white/10 text-gray-600' :
+          gw.status === 'PUBLISHED' ? 'bg-blue-600/25 border border-blue-500/30 text-blue-300' :
+          gw.status === 'FINISHED'  ? 'bg-purple-600/25 border border-purple-500/30 text-purple-300' :
+          gw.status === 'LOCKED'    ? 'bg-yellow-600/25 border border-yellow-500/30 text-yellow-300' :
+          'bg-white/10 border border-white/15 text-white'
+        }`}>
+          {week}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-white text-sm font-semibold">Week {week}</span>
+            {statusInfo
+              ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusInfo.bg} ${statusInfo.color}`}>{gw.status}</span>
+              : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-600">EMPTY</span>
+            }
+          </div>
+          {!editing && (
+            <p className="text-gray-500 text-xs mt-0.5">
+              {new Date(form.start_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+              {' → '}
+              {new Date(form.end_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {gw && gw.event_count != null && (
+            <span className={`text-xs font-bold ${gw.event_count >= 15 ? 'text-green-400' : 'text-gray-600'}`}>
+              {gw.event_count}/15
+            </span>
+          )}
+          {gw && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-lg text-xs transition-colors"
+            >
+              Edit dates
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lock & settle time pills — shown when not editing */}
+      {!editing && (gw?.lock_time || form.end_date) && (
+        <div className="flex gap-2 flex-wrap">
+          {gw?.lock_time && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-yellow-900/15 border border-yellow-500/20 rounded-lg">
+              <span className="text-yellow-400 text-[11px]">🔒</span>
+              <div>
+                <p className="text-yellow-500/70 text-[9px] uppercase tracking-wider font-semibold leading-none mb-0.5">Locks</p>
+                <p className="text-yellow-300 text-[11px] font-medium leading-none">
+                  {new Date(gw.lock_time).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  {' '}
+                  {new Date(gw.lock_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          )}
+          {form.end_date && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-900/15 border border-purple-500/20 rounded-lg">
+              <span className="text-purple-400 text-[11px]">⚙️</span>
+              <div>
+                <p className="text-purple-500/70 text-[9px] uppercase tracking-wider font-semibold leading-none mb-0.5">Closes (fallback)</p>
+                <p className="text-purple-300 text-[11px] font-medium leading-none">
+                  {new Date(form.end_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  {' '}
+                  {new Date(form.end_date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <div className="pt-1 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-gray-500 text-[10px] uppercase tracking-wider block mb-1">Start (Mon)</label>
+              <input className={inp} type="datetime-local" value={form.start_date} onChange={e => set('start_date', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-gray-500 text-[10px] uppercase tracking-wider block mb-1">End / Settles (Sun)</label>
+              <input className={inp} type="datetime-local" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+            </div>
+          </div>
+          {msg && <p className="text-indigo-300 text-xs">{msg}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save dates'}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setForm({ start_date: storedStart, end_date: storedEnd }) }}
+              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 rounded-lg text-xs transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Sprint settings ───────────────────────────────────────────────────────────
 function SprintSettings({ sprint, onSaved }) {
+  const gwCount  = sprint.gameweek_count || 4
+  const gwByWeek = {}
+  for (const gw of (sprint.gameweeks || [])) gwByWeek[gw.sprint_week] = gw
+
+  // Find the last gameweek (highest sprint_week among existing ones)
+  const lastGw = (sprint.gameweeks || []).reduce(
+    (best, gw) => (!best || gw.sprint_week > best.sprint_week) ? gw : best, null
+  )
+
+  // Compute the suggested sprint end:
+  // 1. Last gameweek's end_date (set to last fixture + 2h when fixtures are synced)
+  // 2. Fallback: Sunday 23:59 UTC of the last matchweek
+  const computedEnd = (() => {
+    if (lastGw?.end_date) return lastGw.end_date.slice(0, 16)
+    if (sprint.start_date) {
+      const base = new Date(sprint.start_date)
+      // Monday of last week = base + (gwCount-1)*7 days, clamped to Monday
+      const day = base.getUTCDay()
+      const toMon = day === 0 ? 1 : day === 1 ? 0 : 8 - day
+      const lastMon = new Date(base.getTime() + ((gwCount - 1) * 7 + toMon) * 86400000)
+      lastMon.setUTCHours(0, 0, 0, 0)
+      // Sunday 23:59 of that week
+      const sunday = new Date(lastMon.getTime() + 6 * 86400000)
+      sunday.setUTCHours(23, 59, 0, 0)
+      return sunday.toISOString().slice(0, 16)
+    }
+    return sprint.end_date?.slice(0, 16) ?? ''
+  })()
+
   const [form, setForm] = useState({
     name:       sprint.name,
     start_date: sprint.start_date?.slice(0, 16),
-    end_date:   sprint.end_date?.slice(0, 16),
+    end_date:   sprint.end_date?.slice(0, 16) ?? computedEnd,
   })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg]       = useState('')
@@ -814,21 +1085,20 @@ function SprintSettings({ sprint, onSaved }) {
       await updateSprint(sprint.id, form)
       setMsg('Saved!'); onSaved()
     } catch (e) {
-      setMsg('Error: ' + (e.response?.data?.message || 'save failed'))
+      setMsg('Error: ' + (e.response?.data?.error || e.response?.data?.message || 'save failed'))
     } finally {
       setSaving(false); setTimeout(() => setMsg(''), 3000)
     }
   }
 
-  const gwCount = sprint.gameweek_count || 4
-  const gwByWeek = {}
-  for (const gw of (sprint.gameweeks || [])) gwByWeek[gw.sprint_week] = gw
+  const endMatchesComputed = form.end_date === computedEnd
+  const endSource = lastGw?.end_date ? 'last fixture of last matchweek' : 'Sun 23:59 of last matchweek'
 
   return (
     <div className="space-y-4">
       <form onSubmit={handleSave} className="bg-[#0d1117] border border-white/8 rounded-2xl p-5 space-y-4">
         <h3 className="text-white font-semibold">Sprint settings</h3>
-        {msg && <p className="text-indigo-300 text-xs">{msg}</p>}
+        {msg && <p className={`text-xs ${msg.startsWith('Error') ? 'text-red-400' : 'text-indigo-300'}`}>{msg}</p>}
         <div>
           <label className="text-gray-400 text-xs mb-1 block">Name</label>
           <input className={inp} value={form.name} onChange={e => set('name', e.target.value)} />
@@ -839,8 +1109,27 @@ function SprintSettings({ sprint, onSaved }) {
             <input className={inp} type="datetime-local" value={form.start_date} onChange={e => set('start_date', e.target.value)} />
           </div>
           <div>
-            <label className="text-gray-400 text-xs mb-1 block">End</label>
-            <input className={inp} type="datetime-local" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+            <label className="text-gray-400 text-xs mb-1 block">End (auto-settles here)</label>
+            <input
+              className={inp}
+              type="datetime-local"
+              value={form.end_date}
+              onChange={e => set('end_date', e.target.value)}
+            />
+            <div className="flex items-center justify-between mt-1 gap-2">
+              <p className={`text-[10px] ${endMatchesComputed ? 'text-green-600' : 'text-yellow-600'}`}>
+                {endMatchesComputed ? `✓ Computed from ${endSource}` : `⚠ Differs from computed (${endSource})`}
+              </p>
+              {!endMatchesComputed && computedEnd && (
+                <button
+                  type="button"
+                  onClick={() => set('end_date', computedEnd)}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 underline flex-shrink-0"
+                >
+                  Use computed
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <button type="submit" disabled={saving}
@@ -849,53 +1138,25 @@ function SprintSettings({ sprint, onSaved }) {
         </button>
       </form>
 
-      {/* Per-gameweek settings overview */}
+      {/* Per-gameweek date settings */}
       <div className="bg-[#0d1117] border border-white/8 rounded-2xl p-5 space-y-4">
-        <h3 className="text-white font-semibold">Gameweek settings</h3>
-        <div className="grid grid-cols-1 gap-3">
-          {Array.from({ length: gwCount }, (_, i) => i + 1).map(week => {
-            const gw = gwByWeek[week]
-            const statusInfo = gw ? GW_STATUS[gw.status] : null
-            return (
-              <div key={week} className="flex items-center gap-4 bg-white/3 border border-white/8 rounded-2xl px-4 py-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-base flex-shrink-0 ${
-                  !gw ? 'bg-white/5 border border-white/10 text-gray-600' :
-                  gw.status === 'PUBLISHED' ? 'bg-blue-600/25 border border-blue-500/30 text-blue-300' :
-                  gw.status === 'FINISHED'  ? 'bg-purple-600/25 border border-purple-500/30 text-purple-300' :
-                  gw.status === 'LOCKED'    ? 'bg-yellow-600/25 border border-yellow-500/30 text-yellow-300' :
-                  'bg-white/10 border border-white/15 text-white'
-                }`}>
-                  {week}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-white text-sm font-semibold">Week {week}</span>
-                    {statusInfo
-                      ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusInfo.bg} ${statusInfo.color}`}>{gw.status}</span>
-                      : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-600">EMPTY</span>
-                    }
-                  </div>
-                  {gw
-                    ? <p className="text-gray-500 text-xs mt-0.5">
-                        Lock: {new Date(gw.lock_time).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        {gw.entry_count != null ? ` · ${gw.entry_count} entries` : ''}
-                        {gw.event_count != null ? ` · ${gw.event_count}/15 events` : ''}
-                      </p>
-                    : <p className="text-gray-700 text-xs mt-0.5">No gameweek configured yet</p>
-                  }
-                </div>
-                <div className="text-right flex-shrink-0">
-                  {gw && (
-                    <p className={`text-xs font-bold ${gw.event_count >= 15 ? 'text-green-400' : 'text-gray-600'}`}>
-                      {gw.event_count ?? 0}/15
-                    </p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+        <div>
+          <h3 className="text-white font-semibold">Gameweek date windows</h3>
+          <p className="text-gray-600 text-xs mt-0.5">Default: Monday 00:00 → Sunday 23:59 based on sprint start. Override per week if needed.</p>
         </div>
-        <p className="text-gray-600 text-xs">Lock times and events are managed from the Gameweeks tab.</p>
+        <div className="space-y-3">
+          {Array.from({ length: gwCount }, (_, i) => i + 1).map(week => (
+            <GameweekDateRow
+              key={week}
+              week={week}
+              gw={gwByWeek[week] || null}
+              sprintId={sprint.id}
+              sprintStart={sprint.start_date}
+              onSaved={onSaved}
+            />
+          ))}
+        </div>
+        <p className="text-gray-600 text-xs">Changing dates affects which fixtures appear in the gameweek builder. Lock times are set automatically from match kick-offs.</p>
       </div>
     </div>
   )
@@ -979,19 +1240,20 @@ export default function SprintDetailPage() {
     return map
   }, [sprint?.gameweeks])
 
-  // Split all fixtures into per-week buckets
+  // Split all fixtures into per-week buckets using stored dates when available
   const fixturesByWeek = useMemo(() => {
     if (!sprint?.start_date) return {}
     const result = {}
     for (let w = 1; w <= (sprint.gameweek_count || 4); w++) {
-      const { weekStart, weekEnd } = getWeekBounds(sprint.start_date, w)
+      const gw = gwByWeek[w]
+      const { weekStart, weekEnd } = getWeekBounds(sprint.start_date, w, gw)
       result[w] = allFixtures.filter(f => {
         const d = new Date(f.date)
         return d >= weekStart && d < weekEnd
       })
     }
     return result
-  }, [allFixtures, sprint?.start_date, sprint?.gameweek_count])
+  }, [allFixtures, sprint?.start_date, sprint?.gameweek_count, gwByWeek])
 
   const flash = (msg, ms = 4000) => {
     setActionMsg(msg)
@@ -1005,17 +1267,6 @@ export default function SprintDetailPage() {
       setConfirming(null); load()
     } catch (e) {
       flash('Error: ' + (e.response?.data?.message || 'activate failed'))
-      setConfirming(null)
-    }
-  }
-
-  const handleSettle = async () => {
-    try {
-      const res = await settleSprint(id)
-      flash(`Settled! ${res.data.promotions}↑ promoted, ${res.data.relegations}↓ relegated.`, 6000)
-      setConfirming(null); load()
-    } catch (e) {
-      flash('Error: ' + (e.response?.data?.message || 'settlement failed'))
       setConfirming(null)
     }
   }
@@ -1041,7 +1292,7 @@ export default function SprintDetailPage() {
               {fmtDateFull(sprint.start_date)} → {fmtDateFull(sprint.end_date)}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2">
               <span className={`w-2.5 h-2.5 rounded-full ${STATUS_DOT[sprint.status] || 'bg-gray-600'}`}/>
               <span className={`text-sm font-semibold ${STATUS_TEXT[sprint.status] || 'text-gray-400'}`}>
@@ -1075,6 +1326,38 @@ export default function SprintDetailPage() {
         </div>
       )}
 
+      {/* Auto-settlement info banner */}
+      {sprint.status === 'live' && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-purple-900/10 border border-purple-500/20 rounded-2xl">
+          <span className="text-xl flex-shrink-0">⚙️</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-0.5">Auto-settles</p>
+            <p className="text-white text-sm font-medium">
+              When the last fixture of the last week resolves
+            </p>
+            {sprint.end_date && (
+              <p className="text-gray-600 text-xs mt-0.5">
+                Fallback: {new Date(sprint.end_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at {new Date(sprint.end_date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
+          </div>
+          <p className="text-gray-600 text-xs text-right flex-shrink-0">Promotions & relegations<br/>applied automatically</p>
+        </div>
+      )}
+      {sprint.status === 'completed' && sprint.settled_at && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-purple-900/10 border border-purple-500/20 rounded-2xl">
+          <span className="text-xl flex-shrink-0">✅</span>
+          <div>
+            <p className="text-purple-300 text-xs font-semibold uppercase tracking-wider mb-0.5">Settled</p>
+            <p className="text-white text-sm font-medium">
+              {new Date(sprint.settled_at).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {' at '}
+              {new Date(sprint.settled_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Action message */}
       {actionMsg && (
         <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-2xl px-5 py-3 text-indigo-300 text-sm">
@@ -1094,12 +1377,6 @@ export default function SprintDetailPage() {
           <button onClick={() => setConfirming('activate')}
             className="px-4 py-2 bg-green-600/15 hover:bg-green-600/30 text-green-400 border border-green-500/20 rounded-xl text-sm transition-colors">
             Activate (go live)
-          </button>
-        )}
-        {sprint.status === 'live' && (
-          <button onClick={() => setConfirming('settle')}
-            className="px-4 py-2 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/20 rounded-xl text-sm transition-colors">
-            Settle sprint
           </button>
         )}
         {['live', 'scheduled'].includes(sprint.status) && (
@@ -1128,17 +1405,6 @@ export default function SprintDetailPage() {
           </div>
         </div>
       )}
-      {confirming === 'settle' && (
-        <div className="bg-purple-900/10 border border-purple-500/30 rounded-2xl p-5 space-y-3">
-          <p className="text-purple-300 font-semibold">Settle "{sprint.name}"?</p>
-          <p className="text-gray-400 text-sm">Calculates final LP, applies promotion/relegation, awards badges. Cannot be undone.</p>
-          <div className="flex gap-2">
-            <button onClick={handleSettle} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm">Confirm — settle</button>
-            <button onClick={() => setConfirming(null)} className="px-4 py-2 bg-white/5 text-gray-400 rounded-xl text-sm">Cancel</button>
-          </div>
-        </div>
-      )}
-
       {/* Tabs */}
       <div className="border-b border-white/8">
         <div className="flex gap-0">
@@ -1247,7 +1513,8 @@ export default function SprintDetailPage() {
             <ol className="list-decimal list-inside space-y-0.5">
               <li>Configure and publish each gameweek before activating</li>
               <li>Activate the sprint to open competition for all players</li>
-              <li>After all matches finish → Settle sprint to apply promotions/relegations</li>
+              <li>Each gameweek locks automatically at kick-off and settles at its end date</li>
+              <li>Sprint settles automatically at its end date — promotions & relegations applied</li>
             </ol>
           </div>
         </div>
