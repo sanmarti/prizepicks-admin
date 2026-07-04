@@ -341,6 +341,15 @@ function DivisionCard({ div, isEditing, onEdit, onSave, onCancel, saving, onView
 
       {/* Body */}
       <div className="px-4 py-3 space-y-3">
+        {/* Player count */}
+        <div className="flex items-center gap-2 py-1.5 px-2.5 rounded-xl"
+          style={{ background: v.accentBg, border: `1px solid ${v.accentBorder}` }}>
+          <span className="text-[10px] text-gray-500 font-medium tracking-wider flex-1">CURRENT PLAYERS</span>
+          <span className="font-black text-sm" style={{ color: v.accent }}>
+            {div.player_count ?? 0}
+          </span>
+        </div>
+
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[10px] text-gray-600 mb-1">
             <span>POINTS THRESHOLDS (per sprint)</span>
@@ -479,9 +488,9 @@ function DivisionRankingsPanel({ divisionId, divisions, onClose }) {
         )}
         {!loading && rows.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <span className="text-5xl">{div?.icon}</span>
-            <p className="text-gray-500 text-sm">No players ranked yet</p>
-            <p className="text-gray-700 text-xs">Activate a sprint to see rankings</p>
+            <span className="text-6xl">🏟️</span>
+            <p className="text-gray-300 text-sm font-semibold">No players have reached this level yet</p>
+            <p className="text-gray-600 text-xs">The stadium is empty… for now. Someone's got to be first! 👀</p>
           </div>
         )}
 
