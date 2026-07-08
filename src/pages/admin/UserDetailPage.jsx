@@ -107,6 +107,9 @@ export default function UserDetailPage() {
   const { toasts, toast } = useToast()
   const [tab, setTab] = useState('Overview')
   const [energyAmount, setEnergyAmount] = useState('')
+  const [energyDesc, setEnergyDesc] = useState('')
+  const [energyBalance, setEnergyBalance] = useState(null)
+  const [energyHistory, setEnergyHistory] = useState(null)
   const [actionLoading, setActionLoading] = useState(false)
 
   // Try the rich detail endpoint first; fall back to list entry if not yet deployed
@@ -135,13 +138,23 @@ export default function UserDetailPage() {
 
   async function handleAdjustEnergy() {
     if (!energyAmount) return
+    const amount = parseInt(energyAmount)
+    if (isNaN(amount) || amount === 0) return
     setActionLoading(true)
     try {
-      await adjustEnergy(id, parseInt(energyAmount), 'Admin adjustment')
-      toast('Energy adjusted')
+      const res = await adjustEnergy(id, amount, energyDesc.trim() || 'Admin adjustment')
+      const newBalance = res.data?.balance ?? (energyBalance ?? user.energy_balance ?? 0) + amount
+      setEnergyBalance(newBalance)
+      setEnergyHistory(prev => [{
+        amount,
+        type: 'REWARD',
+        description: energyDesc.trim() || 'Admin adjustment',
+        created_at: new Date().toISOString(),
+      }, ...(prev ?? user.energy_history ?? [])])
+      toast(`Energy ${amount > 0 ? 'added' : 'removed'} — new balance: ⚡ ${newBalance}`)
       setEnergyAmount('')
-      refetch()
-    } catch { toast('Failed', 'error') }
+      setEnergyDesc('')
+    } catch { toast('Failed to adjust energy', 'error') }
     finally { setActionLoading(false) }
   }
 
@@ -498,25 +511,92 @@ export default function UserDetailPage() {
 
           {/* ── ENERGY ───────────────────────────────────────── */}
           {tab === 'Energy' && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-6 mb-4 flex-wrap">
+            <div className="space-y-5">
+              {/* Balance summary */}
+              <div className="flex items-center gap-6 flex-wrap">
                 <div>
-                  <p className="text-yellow-400 text-3xl font-black">⚡ {user.energy_balance ?? 0}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">total balance (base 25 + purchased)</p>
+                  <p className="text-yellow-400 text-3xl font-black">⚡ {energyBalance ?? user.energy_balance ?? 0}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">current balance</p>
                 </div>
                 <div>
                   <p className="text-yellow-300 text-2xl font-black">+{user.extra_energy ?? 0}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">purchased extra</p>
+                  <p className="text-gray-500 text-xs mt-0.5">purchased via packs</p>
                 </div>
               </div>
-              <div className="flex gap-3 items-end">
-                <div className="flex-1">
-                  <label className="text-gray-400 text-xs mb-1 block">Adjust amount (negative to deduct)</label>
-                  <input type="number" value={energyAmount} onChange={(e) => setEnergyAmount(e.target.value)}
-                    placeholder="+10 or -5"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
+
+              {/* Adjustment form */}
+              <div className="bg-white/3 border border-white/8 rounded-xl p-4 space-y-3">
+                <p className="text-white text-sm font-semibold">Adjust energy</p>
+                <div className="flex gap-3">
+                  <div className="w-32 shrink-0">
+                    <label className="text-gray-500 text-xs mb-1 block">Amount</label>
+                    <input
+                      type="number"
+                      value={energyAmount}
+                      onChange={(e) => setEnergyAmount(e.target.value)}
+                      placeholder="+10 or -5"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-gray-500 text-xs mb-1 block">Reason</label>
+                    <input
+                      type="text"
+                      value={energyDesc}
+                      onChange={(e) => setEnergyDesc(e.target.value)}
+                      placeholder="e.g. compensation, promo, correction…"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
-                <ActionButton onClick={handleAdjustEnergy} loading={actionLoading} disabled={!energyAmount}>Apply</ActionButton>
+                <div className="flex gap-2">
+                  <ActionButton
+                    onClick={() => { setEnergyAmount('+10'); setEnergyDesc(energyDesc) }}
+                    variant="secondary" size="sm"
+                  >+10</ActionButton>
+                  <ActionButton
+                    onClick={() => { setEnergyAmount('+25'); setEnergyDesc(energyDesc) }}
+                    variant="secondary" size="sm"
+                  >+25</ActionButton>
+                  <ActionButton
+                    onClick={() => { setEnergyAmount('-10'); setEnergyDesc(energyDesc) }}
+                    variant="secondary" size="sm"
+                  >-10</ActionButton>
+                  <div className="flex-1" />
+                  <ActionButton onClick={handleAdjustEnergy} loading={actionLoading} disabled={!energyAmount}>
+                    Apply
+                  </ActionButton>
+                </div>
+              </div>
+
+              {/* Transaction history */}
+              <div>
+                <p className="text-white text-sm font-semibold mb-3">Transaction history</p>
+                {(energyHistory ?? user.energy_history ?? []).length === 0 && (
+                  <p className="text-gray-600 text-sm">No transactions yet.</p>
+                )}
+                <div className="space-y-1.5">
+                  {(energyHistory ?? user.energy_history ?? []).map((tx, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 bg-white/3 border border-white/6 rounded-xl">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                          tx.type === 'PURCHASE' ? 'bg-blue-900/40 text-blue-300' :
+                          tx.type === 'USAGE'    ? 'bg-red-900/30 text-red-400'   :
+                          'bg-indigo-900/30 text-indigo-300'
+                        }`}>{tx.type === 'PURCHASE' ? 'BUY' : tx.type === 'USAGE' ? 'USE' : 'ADJ'}</span>
+                        <span className="text-gray-400 text-xs truncate">{tx.description ?? '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 ml-3">
+                        <span className={`text-sm font-bold ${tx.amount > 0 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          {tx.amount > 0 ? '+' : ''}{tx.amount} ⚡
+                        </span>
+                        <span className="text-gray-600 text-xs">
+                          {new Date(tx.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
