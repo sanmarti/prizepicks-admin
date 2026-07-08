@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
-import { getUsers, banUser, adjustEnergy } from '../../api/users'
+import { getUsers, banUser, adjustEnergy, deleteUser, resetUserPassword } from '../../api/users'
 import { useToast } from '../../hooks/useToast'
 import DataTable from '../../components/admin/ui/DataTable'
 import StatusBadge from '../../components/admin/ui/StatusBadge'
@@ -20,6 +20,39 @@ const TIER_MAP = [
 function getAccuracyTier(pct) {
   if (!pct || pct < 70) return null
   return TIER_MAP.find(t => pct >= t.min) ?? null
+}
+
+function fmtRelative(ts) {
+  if (!ts) return '—'
+  const diff = Date.now() - new Date(ts).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1)   return 'just now'
+  if (m < 60)  return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24)  return `${h}h ago`
+  const d = Math.floor(h / 24)
+  if (d < 7)   return `${d}d ago`
+  return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function ActivityCell({ lastSeen, appOpens, lastLogin, loginCount }) {
+  return (
+    <div className="min-w-[130px]">
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-[10px] text-gray-500 w-12 shrink-0">Last seen</span>
+        <span className={`text-xs font-medium ${lastSeen ? 'text-white' : 'text-gray-600'}`}>{fmtRelative(lastSeen)}</span>
+      </div>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-[10px] text-gray-500 w-12 shrink-0">App opens</span>
+        <span className="text-xs text-indigo-300 font-medium">{appOpens ?? 0}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-gray-500 w-12 shrink-0">Last login</span>
+        <span className={`text-xs ${lastLogin ? 'text-gray-400' : 'text-gray-600'}`}>{fmtRelative(lastLogin)}</span>
+        {loginCount > 0 && <span className="text-[10px] text-gray-600">({loginCount}×)</span>}
+      </div>
+    </div>
+  )
 }
 
 function AccuracyBar({ pct }) {
@@ -45,9 +78,12 @@ export default function UsersPage() {
 
   const [search, setSearch]             = useState('')
   const [roleFilter, setRoleFilter]     = useState('All')
-  const [banTarget, setBanTarget]       = useState(null)
-  const [energyTarget, setEnergyTarget] = useState(null)
-  const [energyAmount, setEnergyAmount] = useState('')
+  const [banTarget, setBanTarget]         = useState(null)
+  const [deleteTarget, setDeleteTarget]   = useState(null)
+  const [resetTarget, setResetTarget]     = useState(null)
+  const [resetResult, setResetResult]     = useState(null)
+  const [energyTarget, setEnergyTarget]   = useState(null)
+  const [energyAmount, setEnergyAmount]   = useState('')
   const [actionLoading, setActionLoading] = useState(false)
 
   const filtered = useMemo(() => {
@@ -58,6 +94,36 @@ export default function UsersPage() {
       return matchSearch && matchRole
     })
   }, [users, search, roleFilter])
+
+  async function handleResetPassword() {
+    setActionLoading(true)
+    try {
+      const res = await resetUserPassword(resetTarget.id)
+      setResetResult({ email: res.data.email, password: res.data.password })
+      setResetTarget(null)
+      refetch()
+    } catch (e) {
+      toast(e.response?.data?.error || 'Reset failed', 'error')
+      setResetTarget(null)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleDelete() {
+    setActionLoading(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      toast(`User ${deleteTarget.email} deleted`)
+      setDeleteTarget(null)
+      refetch()
+    } catch (e) {
+      toast(e.response?.data?.error || 'Delete failed', 'error')
+      setDeleteTarget(null)
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   async function handleBan() {
     setActionLoading(true)
@@ -92,6 +158,7 @@ export default function UsersPage() {
             <div className="flex items-center gap-1.5">
               <p className="text-white text-sm font-medium">{u.display_name ?? '—'}</p>
               {u.role === 'fake_user' && <span className="text-[9px] bg-orange-900/40 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded-full font-bold">TEST</span>}
+              {u.temp_password && <span className="text-[9px] bg-yellow-900/40 text-yellow-400 border border-yellow-500/30 px-1.5 py-0.5 rounded-full font-bold" title={`Temp password: ${u.temp_password}`}>🔑 TEMP</span>}
             </div>
             <p className="text-gray-500 text-xs">{u.email}</p>
           </div>
@@ -106,6 +173,15 @@ export default function UsersPage() {
         : <span className="text-gray-600 text-xs">—</span>
     },
     {
+      key: 'current_gw_picks_submitted', label: 'GW Picks',
+      render: (u) => {
+        const v = u.current_gw_picks_submitted
+        if (v === true)  return <span className="text-green-400 font-bold text-sm">✓</span>
+        if (v === false) return <span className="text-red-400 font-bold text-sm">✗</span>
+        return <span className="text-gray-600 text-xs">—</span>
+      }
+    },
+    {
       key: 'sprints_played', label: 'Sprints',
       render: (u) => <span className="text-gray-300 text-sm font-medium">{u.sprints_played ?? 0}</span>
     },
@@ -118,11 +194,11 @@ export default function UsersPage() {
       render: (u) => <AccuracyBar pct={u.accuracy_pct} />
     },
     {
-      key: 'extra_energy', label: 'Extra ⚡',
+      key: 'energy_balance', label: 'Energy ⚡',
       render: (u) => {
-        const extra = u.extra_energy ?? 0
-        return extra > 0
-          ? <span className="text-yellow-400 font-medium">+{extra}</span>
+        const bal = u.energy_balance ?? 0
+        return bal > 0
+          ? <span className="text-yellow-400 font-medium">{bal}</span>
           : <span className="text-gray-600 text-xs">—</span>
       }
     },
@@ -131,12 +207,25 @@ export default function UsersPage() {
       render: (u) => <span className="text-gray-400 text-xs">{new Date(u.created_at).toLocaleDateString()}</span>
     },
     {
+      key: 'last_seen_at', label: 'Activity',
+      render: (u) => (
+        <ActivityCell
+          lastSeen={u.last_seen_at}
+          appOpens={u.app_opens}
+          lastLogin={u.last_login_at}
+          loginCount={u.login_count}
+        />
+      )
+    },
+    {
       key: 'actions', label: 'Actions', sortable: false,
       render: (u) => (
         <div className="flex items-center gap-2">
           <ActionButton size="sm" variant="ghost" onClick={() => navigate(`/admin/users/${u.id}`)}>👁</ActionButton>
           <ActionButton size="sm" variant="secondary" onClick={() => setEnergyTarget(u)}>⚡</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => setResetTarget(u)} title="Reset password">🔑</ActionButton>
           <ActionButton size="sm" variant="danger" onClick={() => setBanTarget(u)}>🔒</ActionButton>
+          <ActionButton size="sm" variant="danger" onClick={() => setDeleteTarget(u)}>🗑</ActionButton>
         </div>
       )
     }
@@ -177,6 +266,47 @@ export default function UsersPage() {
         onConfirm={handleBan}
         onCancel={() => setBanTarget(null)}
       />
+
+      <ConfirmModal
+        open={!!deleteTarget} danger
+        title={`Permanently delete ${deleteTarget?.email}?`}
+        message="This will erase the account and all associated data — picks, energy, sprint history — forever. This cannot be undone."
+        confirmLabel="Delete forever"
+        loading={actionLoading}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmModal
+        open={!!resetTarget}
+        title={`Reset password for ${resetTarget?.email}?`}
+        message="A new random password will be generated. The user will need to use it to log in, then change it from their account settings."
+        confirmLabel="Generate new password"
+        onConfirm={handleResetPassword}
+        onCancel={() => setResetTarget(null)}
+      />
+
+      {resetResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1c2333] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-white font-semibold text-lg mb-1">Password reset</h3>
+            <p className="text-gray-400 text-sm mb-4">{resetResult.email}</p>
+            <p className="text-gray-400 text-xs mb-2">New temporary password — share this with the user:</p>
+            <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-4 py-3 mb-2">
+              <span className="text-green-400 font-mono text-sm font-bold flex-1 select-all">{resetResult.password}</span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(resetResult.password); toast('Copied!') }}
+                className="text-gray-400 hover:text-white text-xs border border-white/10 rounded-lg px-2 py-1 transition-colors hover:bg-white/10">
+                Copy
+              </button>
+            </div>
+            <p className="text-gray-600 text-xs mb-4">Once the user logs in and changes their password, this will no longer be visible.</p>
+            <div className="flex justify-end">
+              <ActionButton onClick={() => setResetResult(null)}>Done</ActionButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {energyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
