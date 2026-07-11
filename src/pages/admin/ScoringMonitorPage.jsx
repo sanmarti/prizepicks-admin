@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApi } from '../../hooks/useApi'
 import { getGameweeks, getGameweek } from '../../api/gameweeks'
-import { resolveGameweek, overridePick } from '../../api/scoring'
+import { resolveGameweek, earlySettleGameweek, overridePick } from '../../api/scoring'
 import { useToast } from '../../hooks/useToast'
 import StatusBadge from '../../components/admin/ui/StatusBadge'
 import ActionButton from '../../components/admin/ui/ActionButton'
@@ -13,7 +13,8 @@ export default function ScoringMonitorPage() {
   const { toasts, toast } = useToast()
 
   const [selectedId, setSelectedId]     = useState('')
-  const [confirmResolve, setConfirmResolve] = useState(false)
+  const [confirmResolve, setConfirmResolve]     = useState(false)
+  const [confirmEarlySettle, setConfirmEarlySettle] = useState(false)
   const [overrideTarget, setOverrideTarget] = useState(null)
   const [overrideResult, setOverrideResult] = useState('WON')
   const [overrideReason, setOverrideReason] = useState('')
@@ -23,6 +24,18 @@ export default function ScoringMonitorPage() {
     () => selectedId ? getGameweek(selectedId) : Promise.resolve({ data: null }),
     [selectedId]
   )
+
+  async function handleEarlySettle() {
+    setConfirmEarlySettle(false); setLoading(true)
+    try {
+      const res = await earlySettleGameweek(selectedId)
+      const { early_settled_picks, var_skipped, lp_awarded } = res.data
+      toast(`Early settled: ${early_settled_picks} picks, ${lp_awarded} entries awarded LP${var_skipped ? `, ${var_skipped} fixtures skipped (VAR)` : ''}`, 'success')
+      refetch()
+    } catch (e) {
+      toast(e.response?.data?.error ?? 'Early settle failed', 'error')
+    } finally { setLoading(false) }
+  }
 
   async function handleResolve() {
     setConfirmResolve(false); setLoading(true)
@@ -51,6 +64,14 @@ export default function ScoringMonitorPage() {
   return (
     <>
       <ToastContainer toasts={toasts}/>
+      <ConfirmModal
+        open={confirmEarlySettle}
+        title="Early Settle In-Progress Picks?"
+        message="Awards WON/LOST immediately for picks whose outcome is already certain mid-game (BTTS, Over/Under goals, Clean sheets). VAR-uncertain goals are skipped automatically. Safe to run multiple times."
+        confirmLabel="⚡ Early Settle"
+        onConfirm={handleEarlySettle}
+        onCancel={() => setConfirmEarlySettle(false)}
+      />
       <ConfirmModal
         open={confirmResolve}
         title="Resolve Gameweek?"
@@ -100,6 +121,11 @@ export default function ScoringMonitorPage() {
               </option>
             ))}
           </select>
+          {selectedId && gw?.status === 'LOCKED' && (
+            <ActionButton variant="secondary" onClick={() => setConfirmEarlySettle(true)} loading={loading}>
+              ⚡ Early Settle
+            </ActionButton>
+          )}
           {selectedId && gw?.status !== 'FINISHED' && (
             <ActionButton onClick={() => setConfirmResolve(true)} loading={loading}>
               🔄 Resolve Gameweek
