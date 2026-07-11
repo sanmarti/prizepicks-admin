@@ -79,18 +79,21 @@ export default function DashboardPage() {
     return result
   }
 
-  const revenueByDay = d?.revenue?.by_day          ?? []
-  const userGrowth   = d?.users?.growth_by_day      ?? []
-  const picksTrend   = d?.engagement?.picks_trend_by_day ?? []
+  const revenueByDay = d?.revenue?.by_day                   ?? []
+  const userGrowth   = d?.users?.growth_by_day               ?? []
+  const picksTrend   = d?.engagement?.picks_trend_by_day     ?? []
+  const dauTrend     = d?.engagement?.dau_by_day             ?? []
 
   const revSeries  = buildDaySeries(revenueByDay, 'revenue')
   const userSeries = buildDaySeries(userGrowth,   'new_users')
   const pickSeries = buildDaySeries(picksTrend,   'picks')
+  const dauSeries  = buildDaySeries(dauTrend,     'dau')
 
   const chartMap = {
-    revenue: { series: revSeries,  color: '#f59e0b', label: 'Revenue (€)',  formatter: v => `€${v.toFixed(2)}` },
-    users:   { series: userSeries, color: '#6366f1', label: 'New users/day', formatter: v => String(v) },
-    picks:   { series: pickSeries, color: '#22c55e', label: 'Picks/day',     formatter: v => String(v) },
+    revenue: { series: revSeries,  color: '#f59e0b', label: 'Revenue (€)',    formatter: v => `€${v.toFixed(2)}` },
+    users:   { series: userSeries, color: '#6366f1', label: 'New users/day',  formatter: v => String(v) },
+    picks:   { series: pickSeries, color: '#22c55e', label: 'Picks/day',      formatter: v => String(v) },
+    dau:     { series: dauSeries,  color: '#38bdf8', label: 'Active users/day', formatter: v => String(v) },
   }
   const activeChart = chartMap[chartView]
 
@@ -232,7 +235,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-4">
           <SectionHeader title="Trends" sub={`Last ${days} days`} />
           <div className="flex gap-1 bg-white/4 rounded-xl p-1 border border-white/8">
-            {[['picks','🎯 Picks'],['users','👥 Users'],['revenue','💶 Revenue']].map(([v,l]) => (
+            {[['picks','🎯 Picks'],['users','👥 New users'],['dau','🟢 Daily active'],['revenue','💶 Revenue']].map(([v,l]) => (
               <button key={v} onClick={() => setChartView(v)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${chartView === v ? 'bg-white/12 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
                 {l}
