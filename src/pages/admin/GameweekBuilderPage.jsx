@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
 import { getCompetitions } from '../../api/competitions'
-import { createGameweek, publishGameweek } from '../../api/gameweeks'
+import { publishGameweek } from '../../api/gameweeks'
+import { listSprints, addSprintGameweek } from '../../api/sprints'
 import { getOdds } from '../../api/fixtures'
 import { useToast } from '../../hooks/useToast'
 import FixtureSelector from '../../components/admin/gameweek/FixtureSelector'
@@ -12,7 +13,8 @@ import ConfirmModal from '../../components/admin/ui/ConfirmModal'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
 const STEPS = ['Basic Info', 'Import Fixtures', 'Build Events', 'Publish']
-const EVENT_TARGET = 15
+const EVENT_MIN = 6
+const EVENT_MAX = 15
 const THRESHOLDS = ['1.5', '2.5', '3.5', '4.5']
 
 const EVENT_TYPE_META = {
@@ -49,25 +51,28 @@ function StepIndicator({ step }) {
 }
 
 function EventProgress({ count }) {
-  const pct = Math.min(count / EVENT_TARGET, 1)
-  const over = count > EVENT_TARGET
+  const over = count > EVENT_MAX
+  const ready = count >= EVENT_MIN
   return (
     <div className="flex items-center gap-4 px-4 py-3 bg-[#0d1117] border border-white/8 rounded-xl sticky top-0 z-10">
       <div className="flex gap-1">
-        {Array.from({ length: EVENT_TARGET }, (_, i) => (
+        {Array.from({ length: EVENT_MAX }, (_, i) => (
           <div key={i} className={`w-2.5 h-2.5 rounded-full transition-all ${
             i < count
-              ? over ? 'bg-yellow-400' : 'bg-indigo-500'
-              : 'bg-white/10'
+              ? over    ? 'bg-red-400'
+                : ready ? 'bg-indigo-500'
+                        : 'bg-yellow-500'
+              : i < EVENT_MIN ? 'bg-white/20' : 'bg-white/8'
           }`}/>
         ))}
-        {over && <span className="text-yellow-400 text-xs ml-1">+{count - EVENT_TARGET}</span>}
       </div>
-      <span className={`text-sm font-bold ${count >= EVENT_TARGET ? 'text-green-400' : 'text-white'}`}>
-        {count} / {EVENT_TARGET}
+      <span className={`text-sm font-bold ${over ? 'text-red-400' : ready ? 'text-green-400' : 'text-yellow-400'}`}>
+        {count} / {EVENT_MAX}
       </span>
       <span className="text-gray-500 text-xs">
-        {count >= EVENT_TARGET ? '✓ Target reached' : `${EVENT_TARGET - count} more needed`}
+        {over   ? `${count - EVENT_MAX} over maximum` :
+         ready  ? `✓ Ready to publish` :
+                  `${EVENT_MIN - count} more needed (min ${EVENT_MIN})`}
       </span>
     </div>
   )
@@ -321,6 +326,8 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
     weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
   }) : '—'
 
+  const eventTypesAdded = [...new Set(fixtureEvents.map(e => EVENT_TYPE_META[e.event_type]?.icon ?? '?'))]
+
   return (
     <div className="bg-[#111520] border border-white/8 rounded-2xl overflow-hidden">
       {/* Fixture header — clickable */}
@@ -332,7 +339,10 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
             <span className="text-gray-500 text-xs">vs</span>
             <span className="text-white font-semibold">{fixture.away}</span>
           </div>
-          <p className="text-gray-500 text-xs">{fixture.competition} · {matchTime}</p>
+          <p className="text-gray-500 text-xs">
+            {fixture.competition} · {matchTime}
+            {count === 0 && <span className="ml-2 text-gray-600">· click to add picks</span>}
+          </p>
         </div>
 
         {/* Odds preview (collapsed) */}
@@ -350,10 +360,13 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
         {odds?.loading && <span className="text-gray-600 text-xs">Loading odds…</span>}
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {eventTypesAdded.length > 0 && (
+            <span className="text-sm tracking-wide">{eventTypesAdded.join('')}</span>
+          )}
           <span className={`text-xs px-2 py-0.5 rounded-full ${
             count === 0 ? 'bg-white/5 text-gray-500' : 'bg-indigo-600/20 text-indigo-400'
           }`}>
-            {count} event{count !== 1 ? 's' : ''}
+            {count} pick{count !== 1 ? 's' : ''}
           </span>
           <span className={`text-gray-500 text-sm transition-transform ${open ? 'rotate-180' : ''}`}>▼</span>
         </div>
@@ -391,13 +404,18 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
             </div>
           )}
 
-          {/* Add event panel */}
-          <AddEventPanel
-            fixture={fixture}
-            odds={odds}
-            fixtureEvents={fixtureEvents}
-            onAdd={onAdd}
-          />
+          {/* Add event panel — multiple picks per fixture are allowed */}
+          <div>
+            <p className="text-[10px] text-gray-600 mb-2 uppercase tracking-wider">
+              Add picks for this fixture — you can combine Match Result + Goals O/U + Player Goal + Clean Sheet
+            </p>
+            <AddEventPanel
+              fixture={fixture}
+              odds={odds}
+              fixtureEvents={fixtureEvents}
+              onAdd={onAdd}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -409,17 +427,21 @@ function FixtureEventPanel({ fixture, odds, fixtureEvents, onAdd, onRemove, onUp
 export default function GameweekBuilderPage() {
   const navigate = useNavigate()
   const { data: competitions } = useApi(getCompetitions)
+  const { data: sprints }      = useApi(listSprints)
   const { toasts, toast } = useToast()
 
   const [step, setStep]         = useState(0)
   const [saving, setSaving]     = useState(false)
   const [confirmPublish, setConfirmPublish] = useState(false)
 
-  // Step 1
+  // Step 0
+  const [sprintId, setSprintId]   = useState('')
+  const [sprintWeek, setSprintWeek] = useState('')
+  const [weekNumber, setWeekNumber] = useState('') // kept for display in publish modal
+  const [lockTime, setLockTime]   = useState('')
+  const [revealTime, setRevealTime] = useState('')
+  // Competition kept only for fixture import context (not stored on gameweek)
   const [competitionId, setCompetitionId] = useState('')
-  const [weekNumber, setWeekNumber]       = useState('')
-  const [lockTime, setLockTime]           = useState('')
-  const [revealTime, setRevealTime]       = useState('')
 
   // Step 2
   const [selectedFixtures, setSelectedFixtures] = useState([])
@@ -431,6 +453,8 @@ export default function GameweekBuilderPage() {
 
   const activeCompetitions  = competitions ?? []
   const selectedCompetition = activeCompetitions.find(c => c.id === competitionId)
+  const activeSprints       = (sprints ?? []).filter(s => ['draft','scheduled','live'].includes(s.status))
+  const selectedSprint      = activeSprints.find(s => s.id === sprintId)
 
   // Fetch odds when entering Step 3
   useEffect(() => {
@@ -505,8 +529,7 @@ export default function GameweekBuilderPage() {
 
   function buildPayload() {
     return {
-      competition_id: competitionId,
-      week_number: parseInt(weekNumber),
+      sprint_week: parseInt(sprintWeek),
       lock_time:   lockTime,
       reveal_time: revealTime || lockTime,
       events: events.map(e => ({
@@ -524,9 +547,9 @@ export default function GameweekBuilderPage() {
   async function handleSaveDraft() {
     setSaving(true)
     try {
-      await createGameweek(buildPayload())
+      await addSprintGameweek(sprintId, buildPayload())
       toast('Gameweek saved as draft')
-      navigate('/admin/gameweeks')
+      navigate(`/admin/sprints/${sprintId}`)
     } catch (e) {
       toast(e.response?.data?.error ?? 'Save failed', 'error')
     } finally { setSaving(false) }
@@ -536,10 +559,10 @@ export default function GameweekBuilderPage() {
     setConfirmPublish(false)
     setSaving(true)
     try {
-      const { data } = await createGameweek(buildPayload())
-      await publishGameweek(data.gameweekId)
-      toast(`Week ${weekNumber} published!`, 'success')
-      navigate('/admin/scoring')
+      const { data } = await addSprintGameweek(sprintId, buildPayload())
+      await publishGameweek(data.gameweek_id)
+      toast(`MW${sprintWeek} published for ${selectedSprint?.name}!`, 'success')
+      navigate(`/admin/sprints/${sprintId}`)
     } catch (e) {
       toast(e.response?.data?.error ?? 'Publish failed', 'error')
     } finally { setSaving(false) }
@@ -548,9 +571,9 @@ export default function GameweekBuilderPage() {
   const allOptions = events.flatMap(e => e.options.map(o => ({ ...o, event_type: e.event_type })))
 
   const step1Missing = [
-    !competitionId && 'Competition',
-    !weekNumber    && 'Week Number',
-    !lockTime      && 'Lock Time',
+    !sprintId    && 'Sprint',
+    !sprintWeek  && 'Sprint Week',
+    !lockTime    && 'Lock Time',
   ].filter(Boolean)
   const canStep1 = step1Missing.length === 0
   const canStep2 = selectedFixtures.length >= 2
@@ -561,7 +584,7 @@ export default function GameweekBuilderPage() {
       <ConfirmModal
         open={confirmPublish}
         title="Publish Gameweek?"
-        message={`This will publish gameweek ${weekNumber} for "${selectedCompetition?.name}". Matchups will be generated for all active leagues in this competition. Continue?`}
+        message={`This will publish MW${sprintWeek} for "${selectedSprint?.name ?? sprintId}". Users will immediately see the events and can start submitting picks. Continue?`}
         confirmLabel="Publish Now 🚀"
         onConfirm={handlePublish}
         onCancel={() => setConfirmPublish(false)}
@@ -575,34 +598,40 @@ export default function GameweekBuilderPage() {
           <div className="bg-[#111520] border border-white/8 rounded-2xl p-6 space-y-5">
             <h2 className="text-white font-semibold text-lg">Basic Information</h2>
 
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Competition</label>
-              <select value={competitionId} onChange={e => setCompetitionId(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
-                <option value="">Select a competition…</option>
-                {activeCompetitions.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              {selectedCompetition && (
-                <p className="text-xs text-gray-500 mt-1.5">
-                  Gameweek will be visible to all active leagues in this competition.
-                </p>
-              )}
-            </div>
-
+            {/* Sprint — required */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Week Number</label>
-                <input type="number" min={1} value={weekNumber} onChange={e => setWeekNumber(e.target.value)}
-                  placeholder="1"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"/>
+                <label className="block text-xs text-gray-400 mb-1.5">Sprint <span className="text-red-400">*</span></label>
+                <select value={sprintId} onChange={e => { setSprintId(e.target.value); setSprintWeek('') }}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                  <option value="">Select sprint…</option>
+                  {activeSprints.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
+                  ))}
+                </select>
+                {selectedSprint && (
+                  <p className="text-[10px] text-gray-600 mt-1">
+                    {selectedSprint.start_date} → {selectedSprint.end_date}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">Sprint Week (MW) <span className="text-red-400">*</span></label>
+                <select value={sprintWeek} onChange={e => setSprintWeek(e.target.value)}
+                  disabled={!sprintId}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-40">
+                  <option value="">Select week…</option>
+                  {[1, 2, 3, 4].slice(0, selectedSprint?.gameweek_count ?? 4).map(w => (
+                    <option key={w} value={w}>MW{w} — Week {w}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
+            {/* Lock / Reveal times */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Lock Time</label>
+                <label className="block text-xs text-gray-400 mb-1.5">Lock Time <span className="text-red-400">*</span></label>
                 <input type="datetime-local" value={lockTime}
                   onChange={e => { setLockTime(e.target.value); if (!revealTime) setRevealTime(e.target.value) }}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
@@ -614,6 +643,20 @@ export default function GameweekBuilderPage() {
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                   style={{ colorScheme: 'dark' }}/>
               </div>
+            </div>
+
+            {/* Competition — optional, used only for fixture import context */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                Competition <span className="text-gray-600">(optional — sets default for fixture import)</span>
+              </label>
+              <select value={competitionId} onChange={e => setCompetitionId(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                <option value="">Any imported competition…</option>
+                {activeCompetitions.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
 
             <div className="flex items-center justify-end gap-3">
@@ -635,6 +678,7 @@ export default function GameweekBuilderPage() {
               selected={selectedFixtures}
               onSelect={setSelectedFixtures}
               competition={selectedCompetition}
+              competitions={activeCompetitions}
             />
             <div className="flex justify-between">
               <ActionButton variant="secondary" onClick={() => setStep(0)}>← Back</ActionButton>
@@ -679,12 +723,17 @@ export default function GameweekBuilderPage() {
             <div className="flex justify-between items-center">
               <ActionButton variant="secondary" onClick={() => setStep(1)}>← Back</ActionButton>
               <div className="flex items-center gap-3">
-                {events.length < EVENT_TARGET && (
+                {events.length < EVENT_MIN && (
                   <span className="text-yellow-400 text-xs">
-                    ⚠ {EVENT_TARGET - events.length} events still needed
+                    ⚠ {EVENT_MIN - events.length} more event{EVENT_MIN - events.length !== 1 ? 's' : ''} needed (min {EVENT_MIN})
                   </span>
                 )}
-                <ActionButton onClick={() => setStep(3)} disabled={events.length === 0}>
+                {events.length > EVENT_MAX && (
+                  <span className="text-red-400 text-xs">
+                    ⚠ {events.length - EVENT_MAX} over maximum ({EVENT_MAX})
+                  </span>
+                )}
+                <ActionButton onClick={() => setStep(3)} disabled={events.length < EVENT_MIN || events.length > EVENT_MAX}>
                   Review & Publish →
                 </ActionButton>
               </div>
@@ -701,8 +750,8 @@ export default function GameweekBuilderPage() {
               {/* Summary grid */}
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  ['Competition', selectedCompetition?.name ?? competitionId],
-                  ['Week',     weekNumber],
+                  ['Sprint',   selectedSprint?.name ?? sprintId],
+                  ['MW',       sprintWeek ? `MW${sprintWeek}` : '—'],
                   ['Lock',     lockTime ? new Date(lockTime).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '—'],
                   ['Fixtures', selectedFixtures.length],
                   ['Events',   events.length],
