@@ -13,6 +13,6 @@ phases:
   build:
     commands:
       - npm run build
-      - aws s3 sync dist/ s3://$FRONTEND_BUCKET --delete
+      - aws s3 sync dist/ s3://$FRONTEND_BUCKET/admin/ --delete
       - aws cloudfront create-invalidation
-          --distribution-id $CLOUDFRONT_DIST_ID --paths "/*"
+          --distribution-id $CLOUDFRONT_DIST_ID --paths "/admin/*"
