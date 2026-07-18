@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { useApi } from '../../hooks/useApi'
-import { getUserDetail, getUsers, adjustEnergy, banUser } from '../../api/users'
+import { getUserDetail, getUsers, adjustEnergy, banUser, getUserNotifications } from '../../api/users'
 import { useToast } from '../../hooks/useToast'
 import StatusBadge from '../../components/admin/ui/StatusBadge'
 import ActionButton from '../../components/admin/ui/ActionButton'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
-const TABS = ['Overview', 'Sprint History', 'Matchweek History', 'Division History', 'Energy', 'Actions']
+const TABS = ['Overview', 'Sprint History', 'Matchweek History', 'Division History', 'Energy', 'Notifications', 'Actions']
 
 const OUTCOME_CFG = {
   promoted:  { label: '⬆ Promoted',  color: 'text-green-400',  bg: 'bg-green-900/30 border-green-500/30' },
@@ -111,6 +111,8 @@ export default function UserDetailPage() {
   const [energyBalance, setEnergyBalance] = useState(null)
   const [energyHistory, setEnergyHistory] = useState(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [notifs, setNotifs] = useState(null)
+  const [loadingNotifs, setLoadingNotifs] = useState(false)
 
   // Try the rich detail endpoint first; fall back to list entry if not yet deployed
   const { data: detail, loading: loadingDetail } = useApi(() => getUserDetail(id).catch(() => null), [id])
@@ -287,7 +289,16 @@ export default function UserDetailPage() {
         {/* Tabs */}
         <div className="flex gap-1 bg-white/3 rounded-xl p-1 w-fit flex-wrap">
           {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)}
+            <button key={t} onClick={() => {
+              setTab(t)
+              if (t === 'Notifications' && !notifs && !loadingNotifs) {
+                setLoadingNotifs(true)
+                getUserNotifications(id)
+                  .then(r => setNotifs(r.notifications ?? []))
+                  .catch(() => setNotifs([]))
+                  .finally(() => setLoadingNotifs(false))
+              }
+            }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}>
               {t}
             </button>
@@ -598,6 +609,60 @@ export default function UserDetailPage() {
                   ))}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── NOTIFICATIONS ────────────────────────────────── */}
+          {tab === 'Notifications' && (
+            <div className="space-y-4">
+              {loadingNotifs && <p className="text-gray-500 text-sm">Loading...</p>}
+              {!loadingNotifs && notifs && notifs.length === 0 && (
+                <p className="text-gray-500 text-sm">No emails sent to this user yet.</p>
+              )}
+              {!loadingNotifs && notifs && notifs.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/8 text-left">
+                        <th className="pb-3 pr-4 text-gray-400 font-medium">Type</th>
+                        <th className="pb-3 pr-4 text-gray-400 font-medium">Subject</th>
+                        <th className="pb-3 pr-4 text-gray-400 font-medium">Sent</th>
+                        <th className="pb-3 pr-4 text-gray-400 font-medium text-center">Opened</th>
+                        <th className="pb-3 text-gray-400 font-medium text-center">Clicked</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {notifs.map(n => (
+                        <tr key={n.id} className="hover:bg-white/2">
+                          <td className="py-3 pr-4">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              n.type === 'picks_open'    ? 'bg-green-900/40 text-green-400' :
+                              n.type === 'lock_reminder' ? 'bg-amber-900/40 text-amber-400' :
+                                                           'bg-white/8 text-gray-400'
+                            }`}>
+                              {n.type === 'picks_open' ? 'Picks Open' : n.type === 'lock_reminder' ? 'Lock Reminder' : n.type}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-gray-300 max-w-xs truncate">{n.subject}</td>
+                          <td className="py-3 pr-4 text-gray-400 whitespace-nowrap">
+                            {new Date(n.sent_at).toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
+                          </td>
+                          <td className="py-3 pr-4 text-center">
+                            {n.opened_at
+                              ? <span title={new Date(n.opened_at).toLocaleString()}>✅</span>
+                              : <span className="text-gray-600">—</span>}
+                          </td>
+                          <td className="py-3 text-center">
+                            {n.clicked_at
+                              ? <span title={new Date(n.clicked_at).toLocaleString()}>🔗</span>
+                              : <span className="text-gray-600">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
