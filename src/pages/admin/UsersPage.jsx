@@ -88,11 +88,17 @@ export default function UsersPage() {
 
   const filtered = useMemo(() => {
     if (!users) return []
-    return users.filter((u) => {
-      const matchSearch = !search || u.email?.toLowerCase().includes(search.toLowerCase()) || u.display_name?.toLowerCase().includes(search.toLowerCase())
-      const matchRole   = roleFilter === 'All' || u.role === roleFilter
-      return matchSearch && matchRole
-    })
+    return users
+      .filter((u) => {
+        const matchSearch = !search || u.email?.toLowerCase().includes(search.toLowerCase()) || u.display_name?.toLowerCase().includes(search.toLowerCase())
+        const matchRole   = roleFilter === 'All' || u.role === roleFilter
+        return matchSearch && matchRole
+      })
+      .sort((a, b) => {
+        const ta = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0
+        const tb = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0
+        return tb - ta
+      })
   }, [users, search, roleFilter])
 
   async function handleResetPassword() {
