@@ -294,7 +294,7 @@ export default function UserDetailPage() {
               if (t === 'Notifications' && !notifs && !loadingNotifs) {
                 setLoadingNotifs(true)
                 getUserNotifications(id)
-                  .then(r => setNotifs(r.notifications ?? []))
+                  .then(r => setNotifs(r.data.notifications ?? []))
                   .catch(() => setNotifs([]))
                   .finally(() => setLoadingNotifs(false))
               }
