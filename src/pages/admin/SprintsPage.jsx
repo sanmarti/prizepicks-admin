@@ -16,7 +16,12 @@ const STATUS_COLORS = {
   archived:  { bg: 'bg-gray-800/40', text: 'text-gray-500' },
 }
 
-const GW_BAR_COLORS = ['bg-gray-600', 'bg-blue-500', 'bg-green-500', 'bg-purple-500']
+const GW_STATUS_COLORS = {
+  FINISHED:  'bg-purple-500',
+  PUBLISHED: 'bg-blue-500',
+  LOCKED:    'bg-yellow-400',
+  DRAFT:     'bg-gray-500',
+}
 
 function getMonthIndex(sprintName) {
   if (!sprintName) return -1
@@ -86,11 +91,11 @@ function SprintCard({ sprint, onClick }) {
           <span className="text-white font-medium">{gwLinked}/{gwTotal}</span>
         </div>
         <div className="flex gap-1">
-          {Array.from({ length: gwTotal }, (_, i) => (
-            <div key={i}
-              className={`h-1.5 rounded-full flex-1 transition-colors ${i < gwLinked ? GW_BAR_COLORS[Math.min(i, 3)] : 'bg-white/10'}`}
-            />
-          ))}
+          {Array.from({ length: gwTotal }, (_, i) => {
+            const status = sprint.gw_statuses?.[i]
+            const color = status ? (GW_STATUS_COLORS[status] ?? 'bg-gray-500') : 'bg-white/10'
+            return <div key={i} className={`h-1.5 rounded-full flex-1 transition-colors ${color}`} />
+          })}
         </div>
       </div>
 
@@ -159,15 +164,21 @@ function GenerateYearButton({ year, existingSprints, onGenerated }) {
   )
 }
 
+const QUARTERS = [
+  { label: 'Q1', months: [0, 1, 2] },
+  { label: 'Q2', months: [3, 4, 5] },
+  { label: 'Q3', months: [6, 7, 8] },
+  { label: 'Q4', months: [9, 10, 11] },
+]
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SprintsPage() {
-  const [sprints, setSprints]         = useState([])
-  const [loading, setLoading]         = useState(true)
+  const [sprints, setSprints]               = useState([])
+  const [loading, setLoading]               = useState(true)
   const [autoGenerating, setAutoGenerating] = useState(false)
-  const [activeYear, setActiveYear]   = useState(2026)
-  const [monthFilter, setMonthFilter] = useState(null)
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [showCreate, setShowCreate]   = useState(false)
+  const [activeYear, setActiveYear]         = useState(2026)
+  const [statusFilter, setStatusFilter]     = useState('all')
+  const [showCreate, setShowCreate]         = useState(false)
   const navigate = useNavigate()
 
   const load = useCallback(() => {
@@ -194,30 +205,24 @@ export default function SprintsPage() {
     })
   }, [load])
 
-  // Filter to the selected year
+  // Build a map monthIndex → sprint for the active year
   const yearSprints = sprints.filter(s => getYear(s.name) === activeYear)
+  const sprintByMonth = Object.fromEntries(
+    yearSprints.map(s => [getMonthIndex(s.name), s])
+  )
 
-  // Apply month + status filters
-  const filtered = yearSprints.filter(s => {
-    if (monthFilter !== null && getMonthIndex(s.name) !== monthFilter) return false
-    if (statusFilter !== 'all' && s.status !== statusFilter) return false
-    return true
-  })
-
-  // Which months have sprints in the selected year
-  const monthsWithSprints = new Set(yearSprints.map(s => getMonthIndex(s.name)).filter(m => m >= 0))
-
-  // Group filtered sprints by month (for month-labeled sections)
-  const byMonth = []
-  const seen = new Set()
-  for (const s of filtered) {
-    const mi = getMonthIndex(s.name)
-    if (!seen.has(mi)) { seen.add(mi); byMonth.push({ monthIdx: mi, sprints: [] }) }
-    byMonth.find(g => g.monthIdx === mi).sprints.push(s)
+  // For status filter: which months pass
+  const monthPassesFilter = (mi) => {
+    const s = sprintByMonth[mi]
+    if (!s) return true // empty slots always shown
+    return statusFilter === 'all' || s.status === statusFilter
   }
-  byMonth.sort((a, b) => a.monthIdx - b.monthIdx)
 
-  // Live sprint from any year
+  // Only render quarters that have at least one sprint (after status filter)
+  const visibleQuarters = QUARTERS.filter(q =>
+    q.months.some(mi => sprintByMonth[mi] && monthPassesFilter(mi))
+  )
+
   const liveSprint = sprints.find(s => s.status === 'live')
 
   return (
@@ -253,69 +258,38 @@ export default function SprintsPage() {
         </div>
       )}
 
-      {/* Year tabs */}
-      <div className="flex items-center gap-1 bg-white/3 border border-white/8 rounded-2xl p-1 w-fit">
-        {[2026, 2027].map(y => (
-          <button key={y}
-            onClick={() => { setActiveYear(y); setMonthFilter(null) }}
-            className={`px-5 py-1.5 rounded-xl text-sm font-medium transition-colors ${
-              activeYear === y
-                ? 'bg-indigo-600 text-white'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {y}
-            {sprints.filter(s => getYear(s.name) === y).length > 0 && (
-              <span className="ml-1.5 text-[10px] opacity-60">
-                ({sprints.filter(s => getYear(s.name) === y).length})
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Year tabs + status filter */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-1 bg-white/3 border border-white/8 rounded-2xl p-1">
+          {[2026, 2027].map(y => (
+            <button key={y}
+              onClick={() => setActiveYear(y)}
+              className={`px-5 py-1.5 rounded-xl text-sm font-medium transition-colors ${
+                activeYear === y ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {y}
+              {sprints.filter(s => getYear(s.name) === y).length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-60">
+                  ({sprints.filter(s => getYear(s.name) === y).length})
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
 
-      {/* Month pills */}
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          onClick={() => setMonthFilter(null)}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            monthFilter === null
-              ? 'bg-white/15 text-white'
-              : 'bg-white/5 text-gray-500 hover:text-gray-300'
-          }`}
-        >
-          All months
-        </button>
-        {MONTHS_SHORT.map((m, i) => (
-          <button key={i}
-            onClick={() => setMonthFilter(monthFilter === i ? null : i)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              monthFilter === i
-                ? 'bg-indigo-600 text-white'
-                : monthsWithSprints.has(i)
-                  ? 'bg-white/8 text-gray-300 hover:bg-white/12'
-                  : 'bg-white/3 text-gray-700 hover:text-gray-500'
-            }`}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
-
-      {/* Status filter */}
-      <div className="flex gap-1.5">
-        {['all','draft','scheduled','live','completed'].map(s => (
-          <button key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors capitalize ${
-              statusFilter === s
-                ? 'bg-white/15 text-white'
-                : 'bg-white/5 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
+        <div className="flex gap-1.5">
+          {['all','draft','scheduled','live','completed'].map(s => (
+            <button key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors capitalize ${
+                statusFilter === s ? 'bg-white/15 text-white' : 'bg-white/5 text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Auto-generating banner */}
@@ -326,35 +300,68 @@ export default function SprintsPage() {
         </div>
       )}
 
-      {/* Loading skeleton */}
+      {/* Loading skeleton — 4 quarter rows */}
       {loading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-[#0d1117] border border-white/5 rounded-2xl p-4 animate-pulse">
-              <div className="h-3 bg-white/5 rounded w-2/3 mb-2"/>
-              <div className="h-2 bg-white/5 rounded w-1/2 mb-4"/>
-              <div className="h-1.5 bg-white/5 rounded-full"/>
+        <div className="space-y-5">
+          {QUARTERS.map(q => (
+            <div key={q.label}>
+              <div className="h-3 bg-white/5 rounded w-12 mb-3 animate-pulse" />
+              <div className="grid grid-cols-3 gap-3">
+                {q.months.map(mi => (
+                  <div key={mi} className="bg-[#0d1117] border border-white/5 rounded-2xl p-4 animate-pulse">
+                    <div className="h-3 bg-white/5 rounded w-2/3 mb-2"/>
+                    <div className="h-2 bg-white/5 rounded w-1/2 mb-4"/>
+                    <div className="h-1.5 bg-white/5 rounded-full"/>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Sprint list grouped by month */}
-      {!loading && byMonth.length > 0 && byMonth.map(({ monthIdx, sprints: mSprints }) => (
-        <section key={monthIdx}>
-          <p className="text-gray-600 text-xs font-medium tracking-widest mb-2 uppercase">
-            {MONTHS[monthIdx]}
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {mSprints.map(s => (
-              <SprintCard key={s.id} sprint={s} onClick={() => navigate(`/admin/sprints/${s.id}`)} />
-            ))}
-          </div>
-        </section>
-      ))}
+      {/* Quarter rows */}
+      {!loading && (
+        <div className="space-y-6">
+          {QUARTERS.map(q => {
+            const hasAnySprint = q.months.some(mi => sprintByMonth[mi])
+            if (!hasAnySprint) return null
+            return (
+              <section key={q.label}>
+                <p className="text-gray-600 text-[11px] font-semibold tracking-widest uppercase mb-2.5">
+                  {q.label} · {MONTHS_SHORT[q.months[0]]}–{MONTHS_SHORT[q.months[2]]}
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  {q.months.map(mi => {
+                    const s = sprintByMonth[mi]
+                    if (!s) {
+                      return (
+                        <div key={mi} className="rounded-2xl border border-dashed border-white/6 p-4 flex flex-col items-center justify-center gap-1 min-h-[120px]">
+                          <p className="text-white/15 text-xs font-medium">{MONTHS_SHORT[mi]}</p>
+                        </div>
+                      )
+                    }
+                    const hidden = statusFilter !== 'all' && s.status !== statusFilter
+                    if (hidden) {
+                      return (
+                        <div key={mi} className="rounded-2xl border border-dashed border-white/6 p-4 flex flex-col items-center justify-center gap-1 min-h-[120px]">
+                          <p className="text-white/15 text-xs font-medium">{MONTHS_SHORT[mi]}</p>
+                        </div>
+                      )
+                    }
+                    return (
+                      <SprintCard key={s.id} sprint={s} onClick={() => navigate(`/admin/sprints/${s.id}`)} />
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      )}
 
       {/* Empty state */}
-      {!loading && filtered.length === 0 && yearSprints.length === 0 && (
+      {!loading && yearSprints.length === 0 && (
         <div className="text-center py-16">
           <p className="text-4xl mb-3">🗓️</p>
           <p className="text-gray-400 font-medium">No sprints for {activeYear}</p>
@@ -362,12 +369,12 @@ export default function SprintsPage() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && yearSprints.length > 0 && (
+      {!loading && yearSprints.length > 0 && visibleQuarters.length === 0 && (
         <div className="text-center py-10">
           <p className="text-gray-500 text-sm">No sprints match the current filter</p>
-          <button onClick={() => { setMonthFilter(null); setStatusFilter('all') }}
+          <button onClick={() => setStatusFilter('all')}
             className="mt-2 text-indigo-400 text-xs hover:text-indigo-300">
-            Clear filters
+            Clear filter
           </button>
         </div>
       )}
