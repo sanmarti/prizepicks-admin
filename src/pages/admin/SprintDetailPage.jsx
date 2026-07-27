@@ -163,7 +163,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
 
   const initEvents = useCallback(() => {
     if (!existingGw?.events?.length) return []
-    return existingGw.events.map(ev => {
+    return [...existingGw.events].sort((a, b) => new Date(a.match_time) - new Date(b.match_time)).map(ev => {
       // Derive home/away team from options for WHO_QUALIFIES, otherwise from fixture_name
       let homeTeam = '', awayTeam = ''
       if (ev.event_type === 'WHO_QUALIFIES') {
@@ -261,7 +261,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
       threshold:    '2.5',
       no_draw:      false,
       options:      buildOptions(defaultType, fix.home_team, fix.away_team, '2.5', false),
-    }])
+    }].sort((a, b) => new Date(a.match_time) - new Date(b.match_time)))
   }
 
   const updateEventType = (idx, type) => {
