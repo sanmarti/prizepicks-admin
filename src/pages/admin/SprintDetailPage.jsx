@@ -35,6 +35,16 @@ const KNOCKOUT_ROUND_RE = /final|quarter|semi|round of|knockout|playoff|cup roun
 const GOALS_THRESHOLDS    = ['0.5', '1.5', '2.5', '3.5', '4.5']
 const CORNER_THRESHOLDS   = ['7.5', '8.5', '9.5', '10.5', '11.5']
 
+function optSortKey(result_key) {
+  if (!result_key) return 2
+  if (result_key === 'HOME_WIN' || result_key === 'HOME_QUALIFIES' || result_key === 'HOME_CLEAN_SHEET') return 1
+  if (result_key === 'DRAW') return 2
+  if (result_key === 'AWAY_WIN' || result_key === 'AWAY_QUALIFIES' || result_key === 'AWAY_CLEAN_SHEET') return 3
+  if (/^(OVER_|BTTS_YES|PLAYER_SCORES|CORNER_OVER_)/.test(result_key)) return 1
+  if (/^(UNDER_|BTTS_NO|PLAYER_NO_SCORE|CORNER_UNDER_)/.test(result_key)) return 3
+  return 2
+}
+
 function buildOptions(type, homeTeam, awayTeam, threshold, noDraw = false) {
   switch (type) {
     case 'MATCH_RESULT': return noDraw
@@ -77,6 +87,13 @@ function buildOptions(type, homeTeam, awayTeam, threshold, noDraw = false) {
 
 function knockoutFixtureName(home, away) {
   return `Who qualifies? ${home} vs ${away}`
+}
+
+function getOptLogo(resultKey, homeLogo, awayLogo) {
+  if (!resultKey) return null
+  if (/^HOME_/.test(resultKey)) return homeLogo || null
+  if (/^AWAY_/.test(resultKey)) return awayLogo || null
+  return null
 }
 
 function getWeekBounds(sprintStart, week, existingGw) {
@@ -171,11 +188,9 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
         player_name:  ev.player_name || '',
         threshold,
         no_draw,
-        options:      (ev.options || []).map(o => ({
-          label:       o.label,
-          result_key:  o.result_key,
-          energy_cost: o.energy_cost,
-        })),
+        options:      (ev.options || [])
+          .map(o => ({ label: o.label, result_key: o.result_key, energy_cost: o.energy_cost }))
+          .sort((a, b) => optSortKey(a.result_key) - optSortKey(b.result_key)),
       }
     })
   }, [existingGw])
@@ -229,7 +244,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const pickCount = (id) => events.filter(ev => ev.fixture_id === String(id)).length
 
   const toggleFixture = (fix) => {
-    if (events.length >= 15) return
+    if (events.length >= 15) return  // hard cap at 15
     isDirty.current = true
     const isKnockout = KNOCKOUT_ROUND_RE.test(fix.round || '')
     const defaultType = isKnockout ? 'WHO_QUALIFIES' : 'MATCH_RESULT'
@@ -293,7 +308,8 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const removeEvent = (idx) => { isDirty.current = true; setEvents(prev => prev.filter((_, i) => i !== idx)) }
 
   const handleSave = async (andPublish = false) => {
-    if (andPublish && events.length !== 15) { setErr('Need exactly 15 events to publish'); return }
+    if (andPublish && events.length < 6)  { setErr('Need at least 6 events to publish'); return }
+    if (andPublish && events.length > 15) { setErr('Maximum 15 events allowed'); return }
     if (events.length === 0) { setErr('Add at least 1 event'); return }
     if (andPublish) {
       const badEvent = events.find(ev => ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0) !== 10)
@@ -362,7 +378,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
   const isEditing = !gwStatus || gwStatus === 'DRAFT' || (gwStatus === 'PUBLISHED' && editing)
   const canEdit   = !gwStatus || gwStatus === 'DRAFT' || gwStatus === 'PUBLISHED'
 
-  const pct = (events.length / 15) * 100
+  const pct = Math.min((events.length / 15) * 100, 100)
   const weekLabel = `${weekStart.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
 
   const inp = "w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-indigo-500"
@@ -381,11 +397,11 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
           </div>
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-white/5 rounded-full h-2">
-              <div className={`h-full rounded-full transition-all ${events.length === 15 ? 'bg-green-500' : 'bg-indigo-500'}`}
+              <div className={`h-full rounded-full transition-all ${events.length >= 6 ? 'bg-green-500' : 'bg-indigo-500'}`}
                 style={{ width: `${pct}%` }} />
             </div>
-            <span className={`text-sm font-bold flex-shrink-0 ${events.length === 15 ? 'text-green-400' : 'text-indigo-400'}`}>
-              {events.length}/15 {events.length === 15 && '✓'}
+            <span className={`text-sm font-bold flex-shrink-0 ${events.length >= 6 ? 'text-green-400' : 'text-indigo-400'}`}>
+              {events.length}/15 {events.length >= 6 && '✓'}
             </span>
           </div>
         </div>
@@ -448,7 +464,7 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
             <div className="space-y-3">
               <div className="grid grid-cols-5 gap-2">
                 {[
-                  ['Events',   (existingGw.event_count ?? events.length) + '/15'],
+                  ['Events',   `${existingGw.event_count ?? events.length}/15`],
                   ['Picks in', existingGw.entry_count ?? 0],
                   ['Locks',    existingGw.lock_time ? new Date(existingGw.lock_time).toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'],
                   ['Closes',   existingGw.end_date  ? new Date(existingGw.end_date).toLocaleDateString('en-GB',  { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'],
@@ -551,13 +567,13 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
               <div>
                 <div className="flex items-center justify-between text-xs mb-2">
                   <span className="text-gray-500">Selected events</span>
-                  <span className={`font-bold ${events.length === 15 ? 'text-green-400' : 'text-indigo-400'}`}>
-                    {events.length}/15 {events.length === 15 && '✓ Ready to publish'}
+                  <span className={`font-bold ${events.length >= 6 ? 'text-green-400' : 'text-indigo-400'}`}>
+                    {events.length}/15 {events.length >= 6 && events.length <= 15 && '✓ Ready to publish'}
                   </span>
                 </div>
                 <div className="bg-white/5 rounded-full h-2">
                   <div
-                    className={`h-full rounded-full transition-all ${events.length === 15 ? 'bg-green-500' : 'bg-indigo-500'}`}
+                    className={`h-full rounded-full transition-all ${events.length >= 6 ? 'bg-green-500' : 'bg-indigo-500'}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
@@ -665,14 +681,26 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
 
                         {/* Header */}
                         <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-white text-sm font-semibold">{ev.fixture_name}</p>
-                            {ev.match_time && (
-                              <p className="text-gray-600 text-xs mt-0.5">
-                                {fmtDate(ev.match_time)} · {fmtTime(ev.match_time)}
-                                {ev.competition && ` · ${ev.competition}`}
-                              </p>
-                            )}
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            {(() => {
+                              const fix = weekFixtures.find(f => String(f.id) === String(ev.fixture_id))
+                              const hl = fix?.home_logo; const al = fix?.away_logo
+                              return (hl || al) ? (
+                                <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
+                                  {hl && <img src={hl} alt="" className="w-6 h-6 object-contain" />}
+                                  {al && <img src={al} alt="" className="w-6 h-6 object-contain" />}
+                                </div>
+                              ) : null
+                            })()}
+                            <div className="min-w-0">
+                              <p className="text-white text-sm font-semibold leading-snug">{ev.fixture_name}</p>
+                              {ev.match_time && (
+                                <p className="text-gray-600 text-xs mt-0.5">
+                                  {fmtDate(ev.match_time)} · {fmtTime(ev.match_time)}
+                                  {ev.competition && ` · ${ev.competition}`}
+                                </p>
+                              )}
+                            </div>
                           </div>
                           <button
                             onClick={() => removeEvent(evIdx)}
@@ -740,27 +768,38 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                           const optSum = ev.options.reduce((s, o) => s + Number(o.energy_cost || 0), 0)
                           return (
                             <>
-                              <div className="grid grid-cols-2 gap-2">
-                                {ev.options.map((opt, optIdx) => (
-                                  <div key={optIdx}
-                                    className="flex items-center justify-between bg-white/4 border border-white/8 rounded-xl px-3 py-2 gap-2">
-                                    <div className="min-w-0">
-                                      <p className="text-gray-200 text-xs font-medium truncate">{opt.label}</p>
-                                      <p className="text-gray-700 text-[10px] font-mono">{opt.result_key}</p>
-                                    </div>
-                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                      <span className="text-gray-600 text-[10px]">⚡</span>
-                                      <input
-                                        type="number"
-                                        min="1" max="9"
-                                        value={opt.energy_cost}
-                                        onChange={e => updateEnergyCost(evIdx, optIdx, e.target.value)}
-                                        className="w-8 bg-white/8 border border-white/10 rounded text-center text-white text-xs font-bold focus:outline-none focus:border-indigo-500"
-                                      />
-                                    </div>
+                              {(() => {
+                                const fix = weekFixtures.find(f => String(f.id) === String(ev.fixture_id))
+                                return (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {ev.options.map((opt, optIdx) => {
+                                      const logo = getOptLogo(opt.result_key, fix?.home_logo, fix?.away_logo)
+                                      return (
+                                        <div key={optIdx}
+                                          className="flex items-center justify-between bg-white/4 border border-white/8 rounded-xl px-3 py-2 gap-2">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            {logo && <img src={logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
+                                            <div className="min-w-0">
+                                              <p className="text-gray-200 text-xs font-medium truncate">{opt.label}</p>
+                                              <p className="text-gray-700 text-[10px] font-mono">{opt.result_key}</p>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-1 flex-shrink-0">
+                                            <span className="text-gray-600 text-[10px]">⚡</span>
+                                            <input
+                                              type="number"
+                                              min="1" max="9"
+                                              value={opt.energy_cost}
+                                              onChange={e => updateEnergyCost(evIdx, optIdx, e.target.value)}
+                                              className="w-8 bg-white/8 border border-white/10 rounded text-center text-white text-xs font-bold focus:outline-none focus:border-indigo-500"
+                                            />
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
                                   </div>
-                                ))}
-                              </div>
+                                )
+                              })()}
                               <div className={`text-right text-[11px] font-mono font-semibold mt-1 ${
                                 optSum === 10 ? 'text-green-400' : 'text-red-400'
                               }`}>
@@ -786,14 +825,14 @@ function GameweekSection({ week, sprintId, sprintStart, existingGw, weekFixtures
                 </button>
                 <button
                   onClick={() => handleSave(true)}
-                  disabled={saving || events.length !== 15}
+                  disabled={saving || events.length < 6 || events.length > 15}
                   className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-40 ${
-                    events.length === 15
+                    events.length >= 6 && events.length <= 15
                       ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
                       : 'bg-white/5 text-gray-500'
                   }`}
                 >
-                  {saving ? 'Publishing…' : `Publish ${events.length}/15`}
+                  {saving ? 'Publishing…' : `Publish (${events.length} events)`}
                 </button>
               </div>
             </>
@@ -957,7 +996,7 @@ function GameweekDateRow({ week, gw, sprintId, sprintStart, onSaved }) {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {gw && gw.event_count != null && (
-            <span className={`text-xs font-bold ${gw.event_count >= 15 ? 'text-green-400' : 'text-gray-600'}`}>
+            <span className={`text-xs font-bold ${gw.event_count >= 6 ? 'text-green-400' : 'text-gray-600'}`}>
               {gw.event_count}/15
             </span>
           )}
@@ -1458,7 +1497,7 @@ export default function SprintDetailPage() {
                   <span className={`text-base font-black ${isActive ? 'text-white' : 'text-gray-400'}`}>W{w}</span>
                   {gw ? (
                     <>
-                      <span className={`text-[10px] font-bold ${evCount >= 15 ? 'text-green-400' : isActive ? 'text-indigo-300' : 'text-gray-600'}`}>
+                      <span className={`text-[10px] font-bold ${evCount >= 6 ? 'text-green-400' : isActive ? 'text-indigo-300' : 'text-gray-600'}`}>
                         {evCount}/15
                       </span>
                       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${statusInfo?.bg} ${statusInfo?.color}`}>
