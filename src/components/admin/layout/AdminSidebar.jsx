@@ -20,7 +20,8 @@ const SECTIONS = [
   {
     label: 'OPERATIONS',
     items: [
-      { icon: '⚡', label: 'Energy Packs', path: '/admin/energy-packs' },
+      { icon: '⚡', label: 'Energy Packs',    path: '/admin/energy-packs' },
+      { icon: '📧', label: 'Communications', path: '/admin/communications' },
     ],
   },
 ]
@@ -39,13 +40,10 @@ export default function AdminSidebar() {
   return (
     <aside className="fixed top-0 left-0 h-screen w-[240px] bg-[#0d1117] border-r border-white/8 flex flex-col z-40">
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-white/8">
+      <div className="px-5 py-4 border-b border-white/8">
         <div className="flex items-center gap-2">
-          <span className="text-xl">⚽</span>
-          <div>
-            <p className="text-white font-bold text-sm tracking-wider">PRIZEPICKS</p>
-            <p className="text-gray-500 text-[10px] tracking-widest">ADMIN PANEL</p>
-          </div>
+          <img src="/admin/oddsrivals-logo.png" alt="OddsRivals" className="h-9 w-auto" />
+          <p className="text-gray-500 text-[10px] tracking-widest">ADMIN PANEL</p>
         </div>
       </div>
 

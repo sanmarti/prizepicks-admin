@@ -6,14 +6,49 @@ import ActionButton from '../../components/admin/ui/ActionButton'
 import ConfirmModal from '../../components/admin/ui/ConfirmModal'
 import ToastContainer from '../../components/admin/ui/ToastContainer'
 
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const MAX = 400
+      const scale = Math.min(MAX / img.width, MAX / img.height, 1)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * scale)
+      canvas.height = Math.round(img.height * scale)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', 0.85))
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bad image')) }
+    img.src = url
+  })
+}
+
 const EMPTY = {
   name: '', description: '', image_url: '', energy_amount: 10,
   price_euros: 0.99, discount_pct: 0, is_active: true, display_order: 0,
 }
 
 function PackModal({ pack, onSave, onClose, saving }) {
-  const [form, setForm] = useState(pack || EMPTY)
+  const [form, setForm]         = useState(pack || EMPTY)
+  const [uploading, setUploading] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  async function handleImageFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const b64 = await compressImage(file)
+      set('image_url', b64)
+    } catch {
+      alert('Could not read image. Try another file.')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
 
   const originalPrice = form.discount_pct > 0
     ? (parseFloat(form.price_euros) / (1 - form.discount_pct / 100)).toFixed(2)
@@ -60,11 +95,37 @@ function PackModal({ pack, onSave, onClose, saving }) {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none"
                 placeholder="Short description shown to users" />
             </div>
-            <div className="col-span-2">
-              <label className="text-gray-400 text-xs mb-1 block">Image URL</label>
-              <input value={form.image_url || ''} onChange={e => set('image_url', e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500"
-                placeholder="https://… (optional)" />
+            <div className="col-span-2 space-y-2">
+              <label className="text-gray-400 text-xs mb-1 block">Cover image</label>
+
+              {/* Preview + remove */}
+              {form.image_url && (
+                <div className="relative w-full h-28 rounded-xl overflow-hidden bg-black/30">
+                  <img src={form.image_url} alt="preview" className="w-full h-full object-cover" />
+                  <button type="button" onClick={() => set('image_url', '')}
+                    className="absolute top-2 right-2 bg-black/70 text-red-400 text-xs font-bold px-2 py-1 rounded-lg border border-red-500/30 hover:bg-red-900/40">
+                    ✕ Remove
+                  </button>
+                </div>
+              )}
+
+              {/* Upload button */}
+              <label className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border cursor-pointer select-none text-sm font-semibold transition-colors ${
+                uploading
+                  ? 'bg-indigo-900/40 border-indigo-500/40 text-indigo-300 cursor-wait'
+                  : 'bg-indigo-900/20 border-indigo-500/30 text-indigo-300 hover:bg-indigo-900/40'
+              }`}>
+                {uploading ? '⏳ Compressing…' : '📁 Upload from computer'}
+                <input type="file" accept="image/*" disabled={uploading}
+                  onChange={handleImageFile} className="hidden" />
+              </label>
+
+              {/* URL fallback */}
+              <input
+                value={form.image_url?.startsWith('data:') ? '' : (form.image_url || '')}
+                onChange={e => set('image_url', e.target.value || '')}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white/50 text-xs focus:outline-none focus:border-indigo-500"
+                placeholder="Or paste an image URL (https://…)" />
             </div>
             <div>
               <label className="text-gray-400 text-xs mb-1 block">Energy amount ⚡ *</label>
@@ -110,12 +171,15 @@ function PackModal({ pack, onSave, onClose, saving }) {
 }
 
 export default function EnergyPacksPage() {
-  const { data: packs, loading, refetch } = useApi(listEnergyPacks)
+  const { data, loading, refetch } = useApi(listEnergyPacks)
   const { toasts, toast } = useToast()
-  const [editing, setEditing]   = useState(null)   // null | EMPTY-like | existing pack
+  const [editing, setEditing]   = useState(null)
   const [creating, setCreating] = useState(false)
   const [delTarget, setDelTarget] = useState(null)
   const [saving, setSaving]     = useState(false)
+
+  const packs     = data?.packs  ?? []
+  const saleStats = data?.stats  ?? {}
 
   async function handleSave(form) {
     setSaving(true)
@@ -140,7 +204,11 @@ export default function EnergyPacksPage() {
     finally { setDelTarget(null) }
   }
 
-  const sorted = [...(packs || [])].sort((a, b) => a.display_order - b.display_order || a.price_euros - b.price_euros)
+  const sorted = [...packs].sort((a, b) => a.display_order - b.display_order || a.price_euros - b.price_euros)
+
+  const unitPriceOf = (p) => p.energy_amount > 0
+    ? (parseFloat(p.price_euros) / p.energy_amount)
+    : null
 
   return (
     <>
@@ -177,9 +245,30 @@ export default function EnergyPacksPage() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: 'Total packs', value: sorted.length, icon: '📦' },
-            { label: 'Active packs', value: sorted.filter(p => p.is_active).length, icon: '✅' },
-            { label: 'Cheapest pack', value: sorted.length ? `€${Math.min(...sorted.map(p => parseFloat(p.price_euros))).toFixed(2)}` : '—', icon: '💰' },
+            {
+              label: 'Total revenue',
+              value: saleStats.total_revenue != null
+                ? `€${parseFloat(saleStats.total_revenue).toFixed(2)}`
+                : '—',
+              icon: '💶',
+            },
+            {
+              label: 'Users who bought',
+              value: saleStats.paying_users ?? '—',
+              icon: '👤',
+            },
+            {
+              label: 'Best €/⚡ ratio',
+              value: (() => {
+                const active = sorted.filter(p => p.is_active && p.energy_amount > 0)
+                if (!active.length) return '—'
+                const best = active.reduce((min, p) =>
+                  unitPriceOf(p) < unitPriceOf(min) ? p : min
+                )
+                return `€${unitPriceOf(best).toFixed(3)}/⚡`
+              })(),
+              icon: '⚡',
+            },
           ].map(k => (
             <div key={k.label} className="bg-[#0d1117] border border-white/8 rounded-2xl p-4 flex items-center gap-3">
               <span className="text-2xl">{k.icon}</span>
@@ -233,7 +322,14 @@ export default function EnergyPacksPage() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-yellow-400 font-black text-xl">+{pack.energy_amount} ⚡</span>
+                      <div>
+                        <span className="text-yellow-400 font-black text-xl">+{pack.energy_amount} ⚡</span>
+                        {unitPriceOf(pack) != null && (
+                          <p className="text-gray-600 text-[11px] mt-0.5">
+                            €{unitPriceOf(pack).toFixed(3)} / ⚡
+                          </p>
+                        )}
+                      </div>
                       <div className="text-right">
                         {originalPrice && <p className="text-gray-600 text-xs line-through">€{originalPrice}</p>}
                         <p className="text-green-400 font-black text-lg">€{parseFloat(pack.price_euros).toFixed(2)}</p>

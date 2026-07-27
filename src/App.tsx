@@ -9,7 +9,9 @@ import LoginPage          from "./pages/admin/LoginPage";
 import DashboardPage      from "./pages/admin/DashboardPage";
 import UsersPage          from "./pages/admin/UsersPage";
 import UserDetailPage     from "./pages/admin/UserDetailPage";
-import EnergyPacksPage    from "./pages/admin/EnergyPacksPage";
+import EnergyPacksPage          from "./pages/admin/EnergyPacksPage"
+import CommunicationsPage      from "./pages/admin/CommunicationsPage";
+import CommunicationDetailPage from "./pages/admin/CommunicationDetailPage";
 import CompetitionsPage      from "./pages/admin/CompetitionsPage";
 import CompetitionDetailPage from "./pages/admin/CompetitionDetailPage";
 import DivisionsPage         from "./pages/admin/DivisionsPage";
@@ -44,7 +46,9 @@ export default function App() {
           <Route path="/admin/divisions"        element={<DivisionsPage />} />
           <Route path="/admin/sprints"          element={<SprintsPage />} />
           <Route path="/admin/sprints/:id"      element={<SprintDetailPage />} />
-          <Route path="/admin/energy-packs"     element={<EnergyPacksPage />} />
+          <Route path="/admin/energy-packs"              element={<EnergyPacksPage />} />
+          <Route path="/admin/communications"         element={<CommunicationsPage />} />
+          <Route path="/admin/communications/detail"  element={<CommunicationDetailPage />} />
         </Route>
 
         <Route path="*" element={<NotFound />} />

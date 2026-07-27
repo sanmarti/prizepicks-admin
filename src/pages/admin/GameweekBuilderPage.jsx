@@ -733,7 +733,7 @@ export default function GameweekBuilderPage() {
                     ⚠ {events.length - EVENT_MAX} over maximum ({EVENT_MAX})
                   </span>
                 )}
-                <ActionButton onClick={() => setStep(3)} disabled={events.length < EVENT_MIN || events.length > EVENT_MAX}>
+                <ActionButton onClick={() => setStep(3)} disabled={events.length < EVENT_MIN}>
                   Review & Publish →
                 </ActionButton>
               </div>

@@ -6,3 +6,6 @@ export const createGameweek    = (data)     => client.post('/admin/gameweek', da
 export const getGameweekDetail = (id)       => client.get(`/admin/gameweek/${id}`)
 export const updateGameweek    = (id, data) => client.put(`/admin/gameweek/${id}`, data)
 export const publishGameweek   = (id)       => client.post('/admin/publish', { gameweek_id: id })
+export const lockGameweek         = (id)    => client.post(`/admin/gameweeks/${id}/lock`)
+export const unlockGameweek       = (id)    => client.post(`/admin/gameweeks/${id}/unlock`)
+export const resolveGameweekAdmin = (id)    => client.post(`/admin/gameweeks/${id}/resolve`)

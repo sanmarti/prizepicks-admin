@@ -4,23 +4,28 @@ import { postAdminLogin } from '../../api/auth'
 import { useAdminAuthStore } from '../../store/adminAuthStore'
 
 export default function LoginPage() {
-  const [email, setEmail]       = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError]       = useState('')
-  const [loading, setLoading]   = useState(false)
+  const [email, setEmail]           = useState('')
+  const [password, setPassword]     = useState('')
+  const [error, setError]           = useState('')
+  const [wrongPassword, setWrongPassword] = useState(false)
+  const [loading, setLoading]       = useState(false)
   const login    = useAdminAuthStore((s) => s.login)
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError(''); setWrongPassword(false); setLoading(true)
     try {
       const { data } = await postAdminLogin(email, password)
       if (data.role !== 'admin') { setError('Access denied. Admin only.'); return }
       login(data)
       navigate('/admin/dashboard')
     } catch (err) {
-      setError(err.response?.data?.error ?? 'Invalid credentials')
+      if (err.response?.status === 401) {
+        setWrongPassword(true)
+      } else {
+        setError(err.response?.data?.error ?? 'Login failed')
+      }
     } finally { setLoading(false) }
   }
 
@@ -29,11 +34,8 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold tracking-widest"
-            style={{ background: 'linear-gradient(135deg,#7c6ef5,#a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            PRIZEPICKS
-          </h1>
-          <p className="text-gray-500 text-sm mt-1 tracking-widest">ADMIN PANEL</p>
+          <img src="/admin/oddsrivals-logo.png" alt="OddsRivals" className="h-24 mx-auto mb-1" />
+          <p className="text-gray-500 text-sm tracking-widest">ADMIN PANEL</p>
         </div>
 
         {/* Card */}
@@ -43,14 +45,20 @@ export default function LoginPage() {
             <div>
               <label className="block text-xs text-gray-400 tracking-widest mb-1.5">EMAIL</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-                placeholder="admin@prizepicks.com"
+                placeholder="admin@62glory.com"
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"/>
             </div>
             <div>
               <label className="block text-xs text-gray-400 tracking-widest mb-1.5">PASSWORD</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
+              <input type="password" value={password}
+                onChange={(e) => { setPassword(e.target.value); setWrongPassword(false) }} required
                 placeholder="••••••••"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"/>
+                className={`w-full bg-white/5 border rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none transition-colors ${
+                  wrongPassword ? 'border-red-500 focus:border-red-500' : 'border-white/10 focus:border-indigo-500'
+                }`}/>
+              {wrongPassword && (
+                <p className="mt-1.5 text-xs text-red-400">Wrong password</p>
+              )}
             </div>
 
             {error && (

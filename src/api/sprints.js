@@ -7,6 +7,7 @@ export const updateSprint        = (id, data)    => client.put(`/admin/sprints/$
 export const activateSprint      = (id)          => client.post(`/admin/sprints/${id}/activate`)
 export const settleSprint        = (id)          => client.post(`/admin/sprints/${id}/settle`)
 export const addSprintGameweek   = (id, data)    => client.post(`/admin/sprints/${id}/gameweeks`, data)
+export const updateGameweekDates  = (id, gwId, data) => client.patch(`/admin/sprints/${id}/gameweeks/${gwId}`, data)
 export const removeSprintGameweek= (id, gwId)    => client.delete(`/admin/sprints/${id}/gameweeks/${gwId}`)
 export const getRankings         = (params)      => client.get('/admin/rankings', { params })
 export const getAvailableFixtures= (params)      => client.get('/admin/fixtures/available', { params })

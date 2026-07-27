@@ -10,3 +10,6 @@ export const adjustEnergy    = (id, amount, description) =>
 export const deleteUser             = (id) => client.delete(`/admin/users/${id}`)
 export const resetUserPassword      = (id) => client.post(`/admin/users/${id}/reset-password`)
 export const getUserNotifications   = (id) => client.get(`/admin/users/${id}/notifications`)
+export const getCommunications      = ()  => client.get('/admin/communications')
+export const getCommunicationDetail = (subject, sentAt) =>
+  client.get('/admin/communications/detail', { params: { subject, sent_at: sentAt } })
